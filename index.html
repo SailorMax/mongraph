@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Mongraph</title>
+	<link rel="stylesheet" href="static/app.css" />
+	<link rel="stylesheet" href="static/mermaid.css" />
+	<script src="static/mermaid.min.js"></script>
+	<script type="module" src="static/app.js"></script>
+</head>
+
+<body>
+	<h1>Project name</h1>
+	<nav id="breadcrumb" aria-label="Breadcrumb" class="breadcrumb">
+		<ol></ol>
+	</nav>
+
+	<table id="log">
+	<tr>
+		<th>Timestamp</th>
+		<th>Node</th>
+		<th>Message</th>
+	</tr>
+	</table>
+
+	<pre id="graph" class="mermaid"></pre>
+</body>
+</html>

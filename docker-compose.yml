@@ -1,0 +1,24 @@
+services:
+  app:
+    build: ./
+    image: mongraph-app
+    container_name: mongraph-app
+    ports:
+      - 127.0.0.1:8000:5000
+
+  cron:
+    build: ./
+    image: mongraph-app
+    container_name: mongraph-cron
+    entrypoint: ["python", "/app/cron.py"]
+
+  valkey:
+    image: valkey/valkey:9.0-alpine
+    container_name: mongraph-valkey
+    volumes:
+      - valkey_data:/data
+    command: valkey-server --save 60 1
+
+volumes:
+  valkey_data:
+    driver: local

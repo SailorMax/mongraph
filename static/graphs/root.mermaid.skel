@@ -1,0 +1,8 @@
+flowchart TB
+
+app-server["Application server"]
+app-valkey["Application database"]
+internet
+
+app-server --> app-valkey
+app-server --> internet

@@ -1,0 +1,5 @@
+config/*
+!config/*.skel
+
+static/graphs/*
+!static/graphs/*.skel

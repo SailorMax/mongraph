@@ -1,0 +1,9 @@
+# server
+uvicorn==0.51.0
+fastapi==0.139.0
+
+# database
+valkey==6.1.1
+
+# tools
+pyyaml==6.0.3

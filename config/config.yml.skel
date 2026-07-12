@@ -1,0 +1,13 @@
+cron: 1s
+nodes:
+	aa:
+		check_provider: grafana
+		check_url:		http://grafana/api
+		check_xml_path: zzz/xxx
+	bb:
+		check_provider: zabbix
+		check_url:		http://grafana/api
+		check_xml_path: zzz/xxx
+	cc:
+		check_provider: ping
+		check_url:		http://grafana/api

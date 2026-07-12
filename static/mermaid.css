@@ -1,0 +1,60 @@
+@keyframes fade-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.mermaid g.node.normal rect {
+    fill: #55ff55 !important;
+    animation: fade-blink 5s linear infinite;
+}
+
+.mermaid g.edgeLabels g.label.normal span.edgeLabel p {
+    background-color: #55ff55 !important;
+    animation: fade-blink 5s linear infinite;
+}
+
+.mermaid g.edgePaths path.normal {
+    stroke: #55ff55 !important;
+    animation: fade-blink 5s linear infinite;
+}
+
+
+.mermaid g.node.warning rect {
+    fill: #ffff55 !important;
+    animation: fade-blink 1.5s linear infinite;
+}
+
+.mermaid g.edgeLabels g.label.warning span.edgeLabel p {
+    background-color: #ffff55 !important;
+    animation: fade-blink 1.5s linear infinite;
+}
+
+.mermaid g.edgePaths path.warning {
+    stroke: #ffaa55 !important;
+    animation: fade-blink 1.5s linear infinite;
+}
+
+
+.mermaid g.node.danger rect {
+    fill: #ff5555 !important;
+    animation: fade-blink 1s linear infinite;
+}
+
+.mermaid g.edgeLabels g.label.danger span.edgeLabel p {
+    background-color: #ff5555 !important;
+    animation: fade-blink 1s linear infinite;
+}
+
+.mermaid g.edgePaths path.danger {
+    stroke: #ff5555 !important;
+    animation: fade-blink 1s linear infinite;
+}
+
+
+.link {
+  cursor: pointer;
+}

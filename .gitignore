@@ -3,3 +3,6 @@ config/*
 
 static/graphs/*
 !static/graphs/*.skel
+
+static/custom/*
+!static/custom/.gitkeep

@@ -1,13 +1,43 @@
-cron: 1s
+label: "Project name"
+graph_file: root.mermaid
+defaults:
+  cron: 1s  # how often refresh sensors data
+  level_direction: up  # if up, `warning_level` mean value >= warning_level. If down - value <= warning_level
+  normal_level: null  # if normal_level defined, then any other value is danger
+  warning_level: 90
+  danger_level: 95
+  measurement: '%'
+
+providers:
+  prometeus:
+    base_uri:
+    credentials:
+
 nodes:
-	aa:
-		check_provider: grafana
-		check_url:		http://grafana/api
-		check_xml_path: zzz/xxx
-	bb:
-		check_provider: zabbix
-		check_url:		http://grafana/api
-		check_xml_path: zzz/xxx
-	cc:
-		check_provider: ping
-		check_url:		http://grafana/api
+  app-server:
+    label: "Application server"
+    graph_file: app-server.mermaid
+    child_nodes:
+      app-server-cpu:
+        metric_source: shell://top -bn1 | grep "Cpu(s)" | sed "s/id,//g" | awk '{print 100 - $8}'
+      app-server-memory:
+        metric_source: shell://free | awk '/^Mem:/ {print int($3/$2 * 100)}'
+      app-server-disk-free:
+        metric_source: shell://df -m --output=target,avail | sed 1d
+        metric_mask: '(?<name>[^\s]+)\s+(?<value>[^\s]+)'
+        level_direction: down
+        warning_level: 2048
+        danger_level: 1024
+        measurement: 'MB'
+
+  app-valkey:
+    label: "Application database"
+    metric_source: https://valkey:9104/metrics
+    value_source: http-code
+    normal_level: 200
+
+  internet:
+    label: "Internet"
+    metric_source: https://google.com/
+    value_source: http-code
+    normal_level: 200

@@ -8,16 +8,14 @@ allow4web_keys = [
     r'/(nodes|child_nodes)/[^/]+$',
 ]
 
-config = {}
-
 
 def LoadConfig():
-    global config
     with open("config/config.yml", "r", encoding="utf-8") as config_file:
-        config = yaml.safe_load(config_file)
+        return yaml.safe_load(config_file)
+    return {}
 
 
-def collectWebconfig(config_node: dict = {}, deep=[]):
+def collectWebconfig(config, config_node: dict = {}, deep=[]):
     if len(config_node.items()) == 0:
         config_node = config
 
@@ -28,15 +26,19 @@ def collectWebconfig(config_node: dict = {}, deep=[]):
             continue
 
         if type(v) is dict:
-            web_config_node[k] = collectWebconfig(config_node[k], deep + [k])
+            web_config_node[k] = collectWebconfig(config, config_node[k], deep + [k])
         else:
             web_config_node[k] = v
     return web_config_node
 
 
 def getWebConfig():
-    LoadConfig()
-    return collectWebconfig()
+    config = LoadConfig()
+    return collectWebconfig(config)
+
+
+def getConfig():
+    return LoadConfig()
 
 
 if __name__ == '__main__':

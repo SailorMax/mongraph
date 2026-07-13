@@ -10,3 +10,7 @@ services:
     volumes:
       - ./:/app
     entrypoint: ["uvicorn", "--host", "0.0.0.0", "--port", "5000", "--reload", "--reload-delay", '1', "server:app"]
+
+  cron:
+    volumes:
+      - ./:/app

@@ -1,8 +1,11 @@
-config/*
-!config/*.skel
+/config/*
+!/config/*.skel
+!/config/graphs
+/config/graphs/*
+!/config/graphs/*.skel
 
-static/graphs/*
-!static/graphs/*.skel
+/static/custom/*
+!/static/custom/.gitkeep
 
-static/custom/*
-!static/custom/.gitkeep
+/venv
+__pycache__

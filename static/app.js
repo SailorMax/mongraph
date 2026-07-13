@@ -10,6 +10,9 @@ mermaid.initialize({
 	securityLevel: 'strict'
 });
 
+const config_text = await loadFile('config');
+const config = JSON.parse(config_text);
+
 
 async function drawDiagram(graphDefinition)
 {
@@ -49,7 +52,7 @@ async function ShowGraph(graph_text) {
 }
 
 async function LoadAndShowGraph(filename) {
-	var graph_text = await loadFile('static/graphs/' + filename);
+	var graph_text = await loadFile('config/graphs/' + filename);
 	if (!graph_text)
 		return null;
 	var svg = ShowGraph(graph_text);
@@ -214,9 +217,6 @@ async function RefreshMetrics(svg, config)
 // });
 
 // 1. Initial draw on page load
-const config_text = await loadFile('config');
-const config = JSON.parse(config_text);
-
 const svg = await MakePageByPathname(window.location.pathname, config)
 RefreshMetrics(svg, config);
 

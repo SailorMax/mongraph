@@ -26,10 +26,8 @@ async def get_nodes_metrics():
 
 @app.get('/static/{file_path:path}')
 async def get_static(file_path: str, request: Request):
-    default_container = './static/'
-    if request.url.path[:8] != '/static/':
-        default_container = './'
-
+    request_path = str(request.url.path)
+    default_container = request_path[1:request_path.find(file_path)]
     prepared_file_path = f"./static/custom/{file_path}"
     if not Path(prepared_file_path).is_file():
         prepared_file_path = f"{default_container}{file_path}"
@@ -39,6 +37,11 @@ async def get_static(file_path: str, request: Request):
         return Response(content=content, media_type=mimetypes.guess_type(file_path)[0])
 
     return Response(content='Not found', status_code=404)
+
+
+@app.get('/config/graphs/{file_path:path}')
+async def get_graph(file_path: str, request: Request):
+    return await get_static(file_path=file_path, request=request)
 
 
 @app.get('/{node_path:path}')

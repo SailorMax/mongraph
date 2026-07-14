@@ -7,7 +7,7 @@
   }
 }
 
-.mermaid g.node.normal rect {
+.mermaid g.node.normal rect.label-container {
     fill: #55ff55 !important;
     animation: fade-blink 5s linear infinite;
 }
@@ -23,7 +23,7 @@
 }
 
 
-.mermaid g.node.warning rect {
+.mermaid g.node.warning rect.label-container {
     fill: #ffff55 !important;
     animation: fade-blink 1.5s linear infinite;
 }
@@ -39,7 +39,7 @@
 }
 
 
-.mermaid g.node.danger rect {
+.mermaid g.node.danger rect.label-container {
     fill: #ff5555 !important;
     animation: fade-blink 1s linear infinite;
 }

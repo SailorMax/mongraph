@@ -9,3 +9,4 @@ Monitor infrastructure nodes and visualize it as graph
 
 ### Supported chart types
 - flowchart
+- block

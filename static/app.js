@@ -108,7 +108,7 @@ async function MakePageByPathname(pathname, config) {
 	if (!svg) {
 		// create graph by config
 		console.info('Create graph by config');
-		var graph_lines = ["flowchart LR", ""]
+		var graph_lines = ['block', 'columns 7']  // no links + possible many blocks => use block-graph
 		var nodes = ('nodes' in config ? config['nodes'] : config['child_nodes']);
 		if (nodes) {
 			for (const k in nodes) {

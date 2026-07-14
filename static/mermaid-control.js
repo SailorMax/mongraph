@@ -1,18 +1,18 @@
 function GetSvgElementsPrefix(svg)
 {
 	var middle_prefix = svg['myDiagramType'].split('-')[0];
-	if (middle_prefix == 'architecture')
-		middle_prefix = 'service';
+	if (middle_prefix == 'block')
+		middle_prefix = null
+
+	if (middle_prefix == null)
+		return `${svg.id}-`
 	return `${svg.id}-${middle_prefix}-`
 }
 
 export function GetSvgNodeById(svg, id)
 {
 	var nodeId = GetSvgElementsPrefix(svg) + id;
-
 	var NodeSelector = 'g.node';
-	if (svg['myDiagramType'] == 'architecture')
-		NodeSelector = 'g.architecture-service';
 
 	var els = svg.querySelectorAll(NodeSelector);
 	// console.log(els);

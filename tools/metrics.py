@@ -4,35 +4,56 @@ import re
 import asyncio
 import httpx
 import valkey.asyncio as valkey
+from urllib.parse import urlparse
 from tools.config import getConfig
 
-# valkey_client = valkey.Valkey(host='valkey', port=6379, db=0)
+
+def getValkeyClient(config):
+    try:
+        parsed_uri = urlparse(config['database_uri'])
+        if parsed_uri.scheme != 'valkey':
+            raise ValueError(f"Unknown database type: {parsed_uri.scheme}")
+        return valkey.Valkey(host=parsed_uri.hostname, port=parsed_uri.port, db=parsed_uri.path.split('/')[1])
+
+    except ValueError as e:
+        raise ValueError(f"database_uri is incorrect or not defined: {str(e)}")
 
 
 def GetStatusByValue(value, node_config, config):
+    status, description = 'normal', ''
+
     if 'value_source' in node_config and node_config['value_source'] == 'http-code':
-        return 'normal' if value == node_config['normal_level'] else 'danger'
-
-    try:
-        value = float(value)
-    except:
-        return 'danger'
-
-    level_direction = node_config['level_direction'] if 'level_direction' in node_config else config['defaults']['level_direction']
-    warning_level = node_config['warning_level'] if 'warning_level' in node_config else config['defaults']['warning_level']
-    danger_level = node_config['danger_level'] if 'danger_level' in node_config else config['defaults']['danger_level']
-    if level_direction == 'down':
-        if value <= danger_level:
-            return 'danger'
-        if value <= warning_level:
-            return 'warning'
+        status = 'normal' if value == node_config['normal_level'] else 'danger'
+        description = f"{node_config['value_source']}: {value}"
     else:
-        if value >= danger_level:
-            return 'danger'
-        if value >= warning_level:
-            return 'warning'
+        level_direction = node_config['level_direction'] if 'level_direction' in node_config else config['defaults']['level_direction']
+        warning_level = node_config['warning_level'] if 'warning_level' in node_config else config['defaults']['warning_level']
+        danger_level = node_config['danger_level'] if 'danger_level' in node_config else config['defaults']['danger_level']
+        measurement = node_config['measurement'] if 'measurement' in node_config else config['defaults']['measurement']
 
-    return 'normal'
+        if type(value) is list:
+            values = sorted(value, key=lambda item: float(item[1]), reverse=(level_direction != 'down'))
+            value = values[0][1]
+            description = "\n".join([f"{float(item[1]): >14,.2f}{measurement}  {item[0]}" for item in values])
+        else:
+            description = value + measurement
+
+        try:
+            value = float(value)
+            if level_direction == 'down':
+                if value <= danger_level:
+                    status = 'danger'
+                if value <= warning_level:
+                    status = 'warning'
+            else:
+                if value >= danger_level:
+                    status = 'danger'
+                if value >= warning_level:
+                    status = 'warning'
+        except:
+            status = 'danger'
+
+    return status, description
 
 
 async def LoadNodeMetrics(name, node_config, config):
@@ -40,7 +61,9 @@ async def LoadNodeMetrics(name, node_config, config):
         return False
     update_interval = node_config['update_interval'] if 'update_interval' in node_config else config['defaults']['update_interval']
 
-    # node_metrics = await valkey_client.get(name)
+    if valkey_client:
+        node_metrics = await valkey_client.get(name)
+
     node_metrics = None
     if node_metrics is None:
         node_metrics = {
@@ -63,9 +86,8 @@ async def LoadNodeMetrics(name, node_config, config):
                 if len(stderr) > 0:
                     value = stderr.decode('utf-8')
                 elif 'metric_mask_re' in node_config:
-                    matches = re.findall(rf"\b{node_config['metric_mask_re']}\b", stdout.decode('utf-8'))
-                    for row in matches:
-                        print(row)
+                    matches = re.finditer(rf"{node_config['metric_mask_re']}", stdout.decode('utf-8'), re.MULTILINE)
+                    value = [(match.group('name'), match.group('value')) for match in matches]
                 else:
                     value = stdout.decode('utf-8').strip()
 
@@ -83,13 +105,15 @@ async def LoadNodeMetrics(name, node_config, config):
                 except httpx.HTTPStatusError as exc:
                     value = exc.response.status_code
 
+        status, description = GetStatusByValue(value, node_config, config)
         latest_metrics = {
             'ts': now,
-            'status': GetStatusByValue(value, node_config, config),
-            'value': value
+            'status': status,
+            'description': description
         }
 
-        # await valkey_client.set(name, json.dumps(node_metrics))
+        if valkey_client:
+            await valkey_client.set(name, json.dumps(node_metrics))
         print(latest_metrics)
     return
 
@@ -105,6 +129,10 @@ async def LoadMetricsByConfig(config, node_config=None):
 
 
 async def RefreshMetrics():
+    global valkey_client
+
     config = getConfig()
+    valkey_client = getValkeyClient(config)
+
     await LoadMetricsByConfig(config)
     return

@@ -1,5 +1,6 @@
 import re
 import yaml
+from pathlib import Path
 
 allow4web_keys = [
     r'/label$',
@@ -10,7 +11,7 @@ allow4web_keys = [
 
 
 def LoadConfig():
-    with open("config/config.yml", "r", encoding="utf-8") as config_file:
+    with open(f"{Path(__file__).parent.parent}/config/config.yml", "r", encoding="utf-8") as config_file:
         return yaml.safe_load(config_file)
     return {}
 

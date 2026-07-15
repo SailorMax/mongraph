@@ -11,13 +11,19 @@ function GetSvgElementsPrefix(svg)
 
 export function GetSvgNodeById(svg, id)
 {
-	var nodeId = GetSvgElementsPrefix(svg) + id;
+	var idPrefix = GetSvgElementsPrefix(svg);
 	var NodeSelector = 'g.node';
+	var nodeId;
 
 	var els = svg.querySelectorAll(NodeSelector);
 	// console.log(els);
 	for (var i=0; i<els.length; i++)
 	{
+		if (els[i].id.indexOf('≡') > 0)  // auto-generated block-diagram
+			nodeId = idPrefix + id.replaceAll('-', '≡');
+		else
+			nodeId = idPrefix + id;
+
 		if (els[i].id == nodeId || els[i].id.indexOf(nodeId + '-') === 0)
 			return els[i];
 	}
@@ -28,12 +34,19 @@ export function GetSvgConnectionById(svg, id)
 {
 	var link_label = [null, null];
 
-	var idPrefix = GetSvgElementsPrefix(svg) + id + '_';
+	var idPrefix = GetSvgElementsPrefix(svg);
 	var els = svg.querySelectorAll('path.flowchart-link');
+	var nodeId;
+
 	//console.log(els);
 	for (var i=0; i<els.length; i++)
 	{
-		if (els[i].id.indexOf(idPrefix) === 0) {
+		if (els[i].id.indexOf('≡') > 0)  // auto-generated block-diagram
+			nodeId = idPrefix + id.replaceAll('-', '≡') + '_';
+		else
+			nodeId = idPrefix + id + '_';
+
+		if (els[i].id.indexOf(nodeId) === 0) {
 			link_label[0] = els[i];
 			break;
 		}
@@ -43,7 +56,12 @@ export function GetSvgConnectionById(svg, id)
 	//console.log(els);
 	for (var i=0; i<els.length; i++)
 	{
-		if (els[i].dataset.id.indexOf(id) === 0) {
+		if (els[i].id.indexOf('≡') > 0)  // auto-generated block-diagram
+			nodeId = id.replaceAll('-', '≡');
+		else
+			nodeId = id;
+
+		if (els[i].dataset.id.indexOf(nodeId) === 0) {
 			link_label[1] = els[i];
 			break;
 		}

@@ -23,7 +23,7 @@ nodes:
       app-server-memory:
         metric_source: shell://free | awk '/^Mem:/ {print int($3/$2 * 100)}'
       app-server-disk-free:
-        metric_source: shell://df -m --output=target,avail | sed 1d
+        metric_source: shell://df -m | sed 1d | awk '{print $6, $4}'
         metric_mask: '(?<name>[^\s]+)\s+(?<value>[^\s]+)'
         level_direction: down
         warning_level: 2048

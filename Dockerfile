@@ -1,4 +1,4 @@
-FROM python:3.10-alpine
+FROM python:3.14-alpine
 
 ARG USER_NAME=app-user
 RUN adduser -D -s /bin/bash $USER_NAME
@@ -9,8 +9,12 @@ ENV PATH="$PATH:/home/${USER_NAME}/.local/bin"
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# app
+# cron
+RUN rm /etc/crontabs/root
 USER $USER_NAME
+COPY ./config/crontab /etc/crontabs/$USER_NAME
+
+# app
 COPY ./ /app/
 WORKDIR /app
 RUN pip install --upgrade -r requirements.txt

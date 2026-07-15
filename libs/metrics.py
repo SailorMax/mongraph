@@ -5,7 +5,10 @@ import asyncio
 import httpx
 import valkey.asyncio as valkey
 from urllib.parse import urlparse
-from tools.config import getConfig
+from libs.config import getConfig
+
+
+valkey_client = None
 
 
 def getValkeyClient(config):
@@ -132,7 +135,7 @@ async def RefreshMetrics():
     global valkey_client
 
     config = getConfig()
-    valkey_client = getValkeyClient(config)
+    # valkey_client = getValkeyClient(config)
 
     await LoadMetricsByConfig(config)
     return

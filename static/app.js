@@ -113,9 +113,9 @@ async function MakePageByPathname(pathname, config) {
 		if (nodes) {
 			for (const k in nodes) {
 				if (nodes[k]['label'])
-					graph_lines.push(`${k}["${nodes[k]['label']}"]`);
+					graph_lines.push(`${k.replaceAll('-', '≡')}["${nodes[k]['label']}"]`);
 				else
-					graph_lines.push(k);
+					graph_lines.push(`${k.replaceAll('-', '≡')}["${k}"]`);
 			}
 		}
 		var svg = await ShowGraph(graph_lines.join("\n"));

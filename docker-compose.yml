@@ -1,16 +1,18 @@
 services:
-  app:
+  app: &app-master
     build: ./
     image: mongraph-app
     container_name: mongraph-app
     ports:
       - 127.0.0.1:8000:5000
+    stop_grace_period: 3s
 
   cron:
-    build: ./
-    image: mongraph-app
+    <<: *app-master
     container_name: mongraph-cron
-    entrypoint: ["python", "/app/cron.py"]
+    ports: []
+    user: root
+    entrypoint: ["crond", "-f", "-d", "5"]
 
   valkey:
     image: valkey/valkey:9.0-alpine

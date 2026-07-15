@@ -4,8 +4,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
-from tools.config import getWebConfig
-from tools.nodes import getNodesMetrics
+from libs.config import getWebConfig
+from libs.nodes import getNodesMetrics
 
 # detect pytest
 # is_pytest = sys.argv[0].endswith('pytest')
@@ -26,8 +26,13 @@ async def get_nodes_metrics():
 
 @app.get('/static/{file_path:path}')
 async def get_static(file_path: str, request: Request):
-    request_path = str(request.url.path)
-    default_container = request_path[1:request_path.find(file_path)]
+    if file_path == '':
+        file_path = 'index.html'
+        default_container = ''
+    else:
+        request_path = str(request.url.path)
+        file_path_pos = request_path.find(file_path)
+        default_container = (request_path[1:file_path_pos] if file_path_pos >= 0 else request_path[1:]) + '/'
     prepared_file_path = f"./static/custom/{file_path}"
     if not Path(prepared_file_path).is_file():
         prepared_file_path = f"{default_container}{file_path}"
@@ -46,7 +51,7 @@ async def get_graph(file_path: str, request: Request):
 
 @app.get('/{node_path:path}')
 async def index_html(request: Request):
-    return await get_static(file_path='index.html', request=request)
+    return await get_static(file_path='', request=request)
 
 
 # start point defined in docker-compose

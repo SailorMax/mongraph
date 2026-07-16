@@ -19,11 +19,12 @@ nodes:
     graph_file: app-server.mermaid
     child_nodes:
       app-server-cpu:
-        metric_source: shell://top -bn1 | grep "Cpu(s)" | sed "s/id,//g" | awk '{print 100 - $8}'
+        metric_source: shell://top -bn1 | grep "CPU:" | head -n 1 | sed "s/% idle //g" | awk '{ print 100 - $8 }'
+        # for debian: top -bn1 | grep "Cpu(s)" | sed "s/id,//g" | awk '{print 100-$8}'
       app-server-memory:
         metric_source: shell://free | awk '/^Mem:/ {print int($3/$2 * 100)}'
       app-server-disk-free:
-        metric_source: shell://df -m | sed 1d | awk '{print $6, $4}'
+        metric_source: shell://df -mT | sed 1d | grep -v -E '\s(tmpfs|devtmpfs|overlay|rootfs)\s' | awk '{print $7, $5}'
         metric_mask: '(?<name>[^\s]+)\s+(?<value>[^\s]+)'
         level_direction: down
         warning_level: 2048

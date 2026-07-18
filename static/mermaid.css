@@ -54,7 +54,13 @@
     animation: fade-blink 1s linear infinite;
 }
 
+.mermaid .node rect
+{
+    /* border radius */
+    rx: 5px;
+    ry: 5px;
+}
 
-.link {
+.mermaid .link {
   cursor: pointer;
 }

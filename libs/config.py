@@ -16,7 +16,7 @@ def LoadConfig():
     return {}
 
 
-def collectWebconfig(config, config_node: dict = {}, deep=[]):
+def collectWebConfig(config, config_node: dict = {}, deep=[]):
     if len(config_node.items()) == 0:
         config_node = config
 
@@ -27,20 +27,38 @@ def collectWebconfig(config, config_node: dict = {}, deep=[]):
             continue
 
         if type(v) is dict:
-            web_config_node[k] = collectWebconfig(config, config_node[k], deep + [k])
+            web_config_node[k] = collectWebConfig(config, config_node[k], deep + [k])
         else:
             web_config_node[k] = v
+
+    # TODO: fill by virtual nodes?
     return web_config_node
 
 
-def getWebConfig():
+def GetConfigNodeNames(config_node, deep=[]):
+    node_names = []
+    deep_str = '/' + '/'.join(deep)
+
+    for k, v in config_node.items():
+        if not any(re.search(pattern, f"{deep_str}/{k}") for pattern in allow4web_keys):
+            continue
+
+        if type(v) is dict:
+            if len(deep) > 0:
+                node_names.append(k)
+            node_names.extend(GetConfigNodeNames(v, deep + [k]))
+
+    return node_names
+
+
+def GetWebConfig():
     config = LoadConfig()
-    return collectWebconfig(config)
+    return collectWebConfig(config)
 
 
-def getConfig():
+def GetConfig():
     return LoadConfig()
 
 
 if __name__ == '__main__':
-    print(getWebConfig())
+    print(GetWebConfig())

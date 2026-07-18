@@ -1,7 +1,8 @@
 label: "Project name"
 graph_file: root.mermaid
+database_uri: valkey://valkey:6379/0
 defaults:
-  cron: 1s  # how often refresh sensors data
+  cron: 5s  # how often refresh sensors data
   level_direction: up  # if up, `warning_level` mean value >= warning_level. If down - value <= warning_level
   normal_level: null  # if normal_level defined, then any other value is danger
   warning_level: 90
@@ -9,9 +10,38 @@ defaults:
   measurement: '%'
 
 providers:
-  prometeus:
-    base_uri:
-    credentials:
+  my-prometeus:
+    type: prometeus
+    base_url: https://stat-server.foo/prometheus/api/v1/query
+    metrics:
+      server-ready:
+        query: 'up{project="my-proj"}'
+        normal_level: 1
+      server-tempherature:
+        query: 'node_thermal_zone_temp{project="my-proj"}'
+        warning_level: 70
+        danger_level: 80
+        measurement: '°C'
+      disk-free:
+        query: 'round(node_filesystem_avail_bytes{project="my-proj", fstype!~"tmpfs|fuse.lxcfs", mountpoint!~"(/boot|/boot/.*|/tmp/.*)"} /1024/1024)'
+        level_direction: 'down'
+        warning_level: 2048
+        danger_level: 1024
+        measurement: 'MB'
+      memory-free:
+        query: 'round(node_memory_MemAvailable_bytes{project="my-proj"} /1024/1024)'
+        level_direction: 'down'
+        warning_level: 1024
+        danger_level: 512
+        measurement: 'MB'
+      oom-count:
+        query: 'node_vmstat_oom_kill{project="my-proj"} > 0'
+        track_changes_per: 86400  # seconds
+      cpu-busy:
+        query: 'sum by (location, name, instance) (node_load5{project="my-proj"}) / count by (location, name, instance) (node_cpu_seconds_total{project="my-proj", mode="idle"}) * 100'
+        warning_level: 90
+        danger_level: 100
+      # docker-services:
 
 nodes:
   app-server:
@@ -42,3 +72,8 @@ nodes:
     metric_source: https://google.com/
     value_source: http-code
     normal_level: 200
+
+  sub-project:
+    label: "my-sub-project"
+    child_nodes_from_provider:
+      - provider://my-prometeus?filter=(location=alpha1)&node_name_attr=name

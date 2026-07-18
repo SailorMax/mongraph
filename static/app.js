@@ -10,7 +10,7 @@ mermaid.initialize({
 	securityLevel: 'strict'
 });
 
-const config_text = await loadFile('config');
+const config_text = await loadFile(`config`);
 const config = JSON.parse(config_text);
 
 
@@ -52,7 +52,7 @@ async function ShowGraph(graph_text) {
 }
 
 async function LoadAndShowGraph(filename) {
-	var graph_text = await loadFile('config/graphs/' + filename);
+	var graph_text = await loadFile('graphs/' + filename);
 	if (!graph_text)
 		return null;
 	var svg = ShowGraph(graph_text);
@@ -136,6 +136,15 @@ async function MakePageByPathname(pathname, config) {
 	return svg;
 }
 
+function GetLatestMetricData(metric)
+{
+	return {
+		'ts': metric['last_check_ts'],
+		'status': metric['last_check_status'],
+		'value': metric['metrics_log'].length ? metric['metrics_log'][0]['description'] : null,
+	};
+}
+
 function AssignMetricsToConfig(metrics, config)
 {
 	var abnormal_statuses = {};
@@ -144,7 +153,7 @@ function AssignMetricsToConfig(metrics, config)
 		for (const k in config_nodes) {
 			if (metrics[k]) {
 				config_nodes[k]['latest_metrics'] = metrics[k];
-				if (['warning', 'danger'].indexOf(metrics[k]['status']) >= 0)
+				if (['warning', 'danger'].indexOf(metrics[k]['last_check_status']) >= 0)
 					abnormal_statuses[k] = metrics[k];
 			}
 			const child_abnormal_metrics = AssignMetricsToConfig(metrics, config_nodes[k]);
@@ -171,10 +180,16 @@ async function RefreshMetrics(svg, config)
 		for (const el_name in metrics) {
 			const node = mm_control.GetSvgNodeById(svg, el_name);
 			if (node) {
-				mm_control.SetupAttention(node, metrics[el_name].status, metrics[el_name].value);
+				const metric = GetLatestMetricData(metrics[el_name]);
+				mm_control.SetupAttention(node, metric['status'], metric['value']);
 			}
 		}
 
+		const status2idx = {
+			'normal': 0,
+			'warning': 1,
+			'danger': 2,
+		}
 		var config_nodes = ('nodes' in svg['myConfig'] ? svg['myConfig']['nodes'] : svg['myConfig']['child_nodes']);
 		if (config_nodes) {
 			for (const k in config_nodes) {
@@ -182,20 +197,16 @@ async function RefreshMetrics(svg, config)
 					const node = mm_control.GetSvgNodeById(svg, k);
 					if (node) {
 						const child_abnormal_metrics = config_nodes[k]['child_abnormal_metrics'];
-						const status2idx = {
-							'normal': 0,
-							'warning': 1,
-							'danger': 2,
-						}
 						const sorted_abnormal_keys = Object.keys(child_abnormal_metrics).sort(
-							(a,b) => status2idx[child_abnormal_metrics[b]['status']]-status2idx[child_abnormal_metrics[a]['status']]
+							(a,b) => status2idx[child_abnormal_metrics[b]['last_check_status']]-status2idx[child_abnormal_metrics[a]['last_check_status']]
 						);
-						let worst_status = 'warning';
+						let worst_status = 'normal';
 						let abnormal_metrics = [];
 						for (const name of sorted_abnormal_keys) {
-							if (status2idx[worst_status] < status2idx[child_abnormal_metrics[name]['status']])
-								worst_status = child_abnormal_metrics[name]['status'];
-							abnormal_metrics.push(`${name}: ${child_abnormal_metrics[name]['value']}`);
+							const metric = GetLatestMetricData(child_abnormal_metrics[name]);
+							if (status2idx[worst_status] < status2idx[metric['status']])
+								worst_status = metric['status'];
+							abnormal_metrics.push(`${name}: ${metric['value']}`);
 						}
 						mm_control.SetupAttention(node, worst_status, abnormal_metrics.join('\n'));
 					}

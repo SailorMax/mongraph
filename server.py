@@ -4,8 +4,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
-from libs.config import GetWebConfig
+from libs.helpers import GetWebConfig
 from libs.nodes import GetNodesMetrics
+from libs.nodes import GetNodeInfo
 
 # detect pytest
 # is_pytest = sys.argv[0].endswith('pytest')
@@ -16,12 +17,17 @@ app = FastAPI()
 
 @app.get('/config')
 async def get_config():
-    return GetWebConfig()
+    return await GetWebConfig()
 
 
 @app.get('/metrics')
 async def get_nodes_metrics():
     return await GetNodesMetrics()
+
+
+@app.get('/node_info/{node_path:path}')
+async def get_node_info(node_path: str, request: Request):
+    return await GetNodeInfo(node_path)
 
 
 @app.get('/static/{file_path:path}')

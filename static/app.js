@@ -10,7 +10,7 @@ mermaid.initialize({
 	securityLevel: 'strict'
 });
 
-const config_text = await loadFile(`config`);
+const config_text = await LoadFile(`config`);
 const config = JSON.parse(config_text);
 
 
@@ -33,7 +33,7 @@ async function drawDiagram(graphDefinition)
 	}
 }
 
-async function loadFile(filename) {
+async function LoadFile(filename) {
 	try {
 		const response = await fetch(filename);
 		if (!response.ok)
@@ -52,7 +52,7 @@ async function ShowGraph(graph_text) {
 }
 
 async function LoadAndShowGraph(filename) {
-	var graph_text = await loadFile('graphs/' + filename);
+	var graph_text = await LoadFile('graphs/' + filename);
 	if (!graph_text)
 		return null;
 	var svg = ShowGraph(graph_text);
@@ -76,6 +76,13 @@ function MakeBreadcrumbUI(breadcrumb) {
 }
 
 async function MakePageByPathname(pathname, config) {
+	try {
+		var node_info = await LoadFile('node_info' + pathname);
+	} catch(e) {
+		console.error(e);
+	}
+
+
 	// find current node config
 	var breadcrumb = [{'name': '', 'label': 'Root'}];
 	var path_els = pathname.split('/').slice(1);
@@ -166,7 +173,7 @@ function AssignMetricsToConfig(metrics, config)
 
 async function RefreshMetrics(svg, config)
 {
-	var metrics_text = await loadFile('metrics');
+	var metrics_text = await LoadFile('metrics');
 	if (!metrics_text)
 		return null;
 
@@ -190,7 +197,10 @@ async function RefreshMetrics(svg, config)
 			'warning': 1,
 			'danger': 2,
 		}
-		var config_nodes = ('nodes' in svg['myConfig'] ? svg['myConfig']['nodes'] : svg['myConfig']['child_nodes']);
+		var config_nodes = ('nodes' in svg['myConfig']
+							? svg['myConfig']['nodes']
+							: svg['myConfig']['child_nodes']
+							);
 		if (config_nodes) {
 			for (const k in config_nodes) {
 				if (!config_nodes[k]['latest_metrics'] && config_nodes[k]['child_abnormal_metrics']) {

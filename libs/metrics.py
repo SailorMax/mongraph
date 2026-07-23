@@ -7,7 +7,15 @@ from urllib.parse import urlparse, parse_qs
 from libs.config import GetConfig
 from libs.db import GetValkeyClient
 from libs.helpers import CollectNodesOfCursor
+from simpleeval import simple_eval
 
+status2idx = {
+    'unknown': -1,
+    'normal': 0,
+    'warning': 1,
+    'danger': 2,
+}
+status_pripority_names = list(reversed(list(status2idx.keys())[1:])) or []  # without 'unknown'
 
 valkey_client = None
 provider_metrics = {}
@@ -17,55 +25,41 @@ def GetStatusByValue(value, node_config, config):
     status, description = 'unknown', ''
 
     if value is None:
-        description = 'Could not receive data'
-    elif 'value_source' in node_config and node_config['value_source'] == 'http-code':
+        description = 'Could not detect status. Value is empty.'
+    elif 'value_source' in node_config:
         status = 'normal' if value == node_config['normal_level'] else 'danger'
         description = f"{node_config['value_source']}: {value}"
     else:
-        level_direction = node_config['level_direction'] if 'level_direction' in node_config else config['defaults']['level_direction']
-        warning_level = node_config['warning_level'] if 'warning_level' in node_config else config['defaults']['warning_level']
-        danger_level = node_config['danger_level'] if 'danger_level' in node_config else config['defaults']['danger_level']
-        measurement = node_config['measurement'] if 'measurement' in node_config else config['defaults']['measurement']
+        levels_config = node_config['levels'] if 'levels' in node_config else config['defaults']['levels']
+        levels_config['direction'] = 'up'
+        if ('danger' in levels_config
+            and re.search(r'(value\s*<=?|>=?\s*value)', levels_config['danger'])
+            ):
+            levels_config['direction'] = 'down'
+        print(levels_config)
 
         if type(value) is list:
-            values = sorted(value, key=lambda item: float(item[1]), reverse=(level_direction != 'down'))
+            values = sorted(value, key=lambda item: float(item[1]), reverse=(levels_config['direction'] != 'down'))
             value = values[0][1]
-            description = "\n".join([f"{float(item[1]): >14,.2f}{measurement}  {item[0]}" for item in values])
+            description = "\n".join([f"{float(item[1]): >14,.2f}{levels_config['measurement']}  {item[0]}" for item in values])
         else:
-            description = value + measurement
+            description = f"{value}{levels_config['measurement']}"
 
         try:
             value = float(value)
-            if level_direction == 'down':
-                if value <= danger_level:
-                    status = 'danger'
-                elif value <= warning_level:
-                    status = 'warning'
-                else:
-                    status = 'normal'
-            else:
-                if value >= danger_level:
-                    status = 'danger'
-                elif value >= warning_level:
-                    status = 'warning'
-                else:
-                    status = 'normal'
-        except:
+            status = 'normal'
+            for level_name in status_pripority_names:
+                if (level_name in levels_config
+                    and type(levels_config[level_name]) is str
+                    and simple_eval(levels_config[level_name], names={'value': value})
+                    ):
+                    status = level_name
+                    break
+        except Exception as e:
+            print(e)
             status = 'danger'
 
     return status, description
-
-
-def AppendLogFreshMetrics(logs, metrics):
-    if len(logs) > 0:
-        logs.sort(key=lambda x: x['ts'], reverse=True)
-        if logs[0]['status'] == metrics['status']:
-            return logs
-
-    logs.append(metrics)
-    if len(logs) > 9:
-        logs = logs[0:9]
-    return logs
 
 
 async def RefreshProviderMetrics(config):
@@ -127,13 +121,26 @@ async def GetStoredNodeMetrics(node_name):
 
     if node_metrics is None:
         node_metrics = {
-            'last_check_ts': 0,
-            'last_check_status': 'unknown',
-            'metrics_log': []
+            'ts': 0,
+            'status': 'unknown',
+            'description': '',
+            'history': []
         }
     else:
         node_metrics = json.loads(node_metrics)
     return node_metrics
+
+
+def AppendLogFreshMetrics(history, metrics):
+    if len(history) > 0:
+        history.sort(key=lambda x: x['ts'], reverse=True)
+        if history[0]['status'] == metrics['status']:
+            return history
+
+    history.append(metrics)
+    if len(history) > 9:
+        history = history[0:9]
+    return history
 
 
 async def StoreNodeStatus(node_name, status, description, node_metrics=None):
@@ -146,11 +153,12 @@ async def StoreNodeStatus(node_name, status, description, node_metrics=None):
         'description': description
     }
 
-    node_metrics['last_check_ts'] = latest_metrics['ts']
-    node_metrics['last_check_status'] = latest_metrics['status']
-    node_metrics['metrics_log'] = AppendLogFreshMetrics(node_metrics['metrics_log'], latest_metrics)
+    node_metrics.update(latest_metrics)
+    node_metrics['history'] = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
 
     if valkey_client:
+        print('store:')
+        print([node_name, json.dumps(node_metrics)])
         await valkey_client.set(node_name, json.dumps(node_metrics))
 
 
@@ -161,7 +169,7 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
     node_metrics = await GetStoredNodeMetrics(node_name)
     update_interval = node_config['update_interval'] if 'update_interval' in node_config else config['defaults']['update_interval']
 
-    if node_metrics['last_check_ts'] + update_interval < int(time.time()):
+    if node_metrics['ts'] + update_interval < int(time.time()):
         value = None
         source_type, cmd = node_config['metric_source'].split('://')
         match source_type:

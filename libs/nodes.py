@@ -1,13 +1,13 @@
 import json
-from libs.config import GetConfig
-from libs.db import GetValkeyClient
-from libs.metrics import CollectNodesOfCursor, GetStoredNodeMetrics
-from libs.helpers import GetStoredProviderMetrics
+import libs.config as cfg
+import libs.db as db
+import libs.metrics as metrics
+import libs.helpers as helpers
 
 
 async def GetNodesDbNames(config_node, provider_metrics, config=None):
     node_names = []
-    nodes_list = await CollectNodesOfCursor(config_node, provider_metrics, GetConfig()['providers'])
+    nodes_list = await helpers.CollectNodesOfCursor(config_node, provider_metrics, cfg.GetConfig()['providers'])
     for k, node in nodes_list.items():
         node_names.append(k)
 
@@ -28,14 +28,13 @@ async def GetNodesDbNames(config_node, provider_metrics, config=None):
 
 
 async def GetNodesMetrics():
-    config = GetConfig()
-    provider_metrics = await GetStoredProviderMetrics(config)
+    config = cfg.GetConfig()
+    provider_metrics = await helpers.GetStoredProviderMetrics(config)
     node_names = await GetNodesDbNames(config, provider_metrics)
 
     node_metrics = {}
-    valkey_client = GetValkeyClient()
     for name in node_names:
-        stored_metrics = await valkey_client.get(name)
+        stored_metrics = await db.GetValueByKey(name)
         if stored_metrics is not None:
             node_metrics[name] = json.loads(stored_metrics)
 
@@ -43,7 +42,6 @@ async def GetNodesMetrics():
 
 
 async def GetMetricOfNode(node_name, node_config, child_nodes):
-
     status2idx = {
         'unknown': -1,
         'normal': 0,
@@ -54,29 +52,35 @@ async def GetMetricOfNode(node_name, node_config, child_nodes):
         'ts': 0,
         'status': 'unknown',
     }
+    print(node_name)
     print(json.dumps(node_config, indent=2))
     print(json.dumps(child_nodes, indent=2))
     if 'metric_source' in node_config:
-        print(f'Get metris of node "{node_name}"')
-        metrics = await GetStoredNodeMetrics(node_name)
-        node_worst_metric_data['ts'] = metrics['last_check_ts']
-        node_worst_metric_data['status'] = metrics['last_check_status']
+        print(f'Get metrics of node "{node_name}"')
+        node_metrics = await metrics.GetStoredNodeMetrics(node_name)
+        node_worst_metric_data = node_metrics
     else:
         for node_name, node in child_nodes.items():
             metric_data = None
             if 'metric' in node:
-                print(f"get metric: {node_name} -- {json.dumps(node, indent=2)}")
+                print(f"get node metric: {node_name} -- {json.dumps(node, indent=2)}")
                 metric_data = node['metric']
             elif 'child_nodes' in node:
-                print(f"get child nodes: {node_name}")
-                metric_data = await GetMetricOfNode(node_config, node['child_nodes'])
+                print(f"get metric of childs: {node_name}")
+                metric_data = await GetMetricOfNode(node_name, node_config, node['child_nodes'])
             else:
                 print(f"get data from db: {node_name}")
-                metric_data = None  # TODO: read from DB?
+                metric_data = await db.GetValueByKey(node_name)  # TODO: read from DB?
 
             if metric_data is not None:
                 if status2idx[node_worst_metric_data['status']] < status2idx[metric_data['status']]:
                     node_worst_metric_data = metric_data
+
+        # worst value without history and details
+        node_worst_metric_data = {
+            'ts': node_worst_metric_data['ts'],
+            'status': node_worst_metric_data['status']
+        }
 
     return node_worst_metric_data
 
@@ -84,7 +88,8 @@ async def GetMetricOfNode(node_name, node_config, child_nodes):
 async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_config):
     child_nodes = {}
     print(f"1. {node_config['label'] if 'label' in node_config else node_config}")
-    child_nodes_config = await CollectNodesOfCursor(node_config, provider_metrics, providers_config)
+    child_nodes_config = await helpers.CollectNodesOfCursor(node_config, provider_metrics, providers_config)
+    print(child_nodes_config.keys())
     for child_name, child_node_config in child_nodes_config.items():
         print(f"2. {child_name}: {json.dumps(child_node_config, indent=2)}")
         sub_child_nodes = await CollectNodesMetricSubTree(child_node_config, provider_metrics, providers_config)
@@ -93,7 +98,6 @@ async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_con
             'metric': await GetMetricOfNode(child_name, child_node_config, sub_child_nodes),
             'child_nodes': sub_child_nodes
         }
-        break
     return child_nodes
 
 
@@ -104,8 +108,7 @@ async def GetNodeInfo(node_path: str):
     # - graph_file
     # - child_nodes
     # - - name: label, metrics
-    config = GetConfig()
-    provider_metrics = await GetStoredProviderMetrics(config)
+    config = cfg.GetConfig()
 
     # find config_node
     node_deep = []
@@ -127,6 +130,7 @@ async def GetNodeInfo(node_path: str):
             break
 
     # collect childs
+    provider_metrics = await helpers.GetStoredProviderMetrics(config)
     child_nodes = await CollectNodesMetricSubTree(node_config, provider_metrics, config['providers'])
 
     # collect info

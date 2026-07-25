@@ -1,15 +1,14 @@
 import re
 import json
 import libs.config
+import libs.db as db
+import libs.config as cfg
+
 from urllib.parse import urlparse, parse_qs
-from libs.db import GetValkeyClient
-from libs.config import LoadConfig
 from simpleeval import simple_eval
 
 
 async def GetStoredProviderMetrics(config):
-    global valkey_client
-    valkey_client = GetValkeyClient()
 
     provider_metrics = {}
     providers = config['providers']
@@ -21,9 +20,7 @@ async def GetStoredProviderMetrics(config):
 
                     db_key = f"providers / {provider_data['type']} / {metric_name}"
                     # airflow01.atlas.mchs.ru--memory-free
-                    item_metrics = None
-                    if valkey_client:
-                        item_metrics = await valkey_client.get(db_key)
+                    item_metrics = await db.GetValueByKey(db_key)
                     if item_metrics is None:
                         item_metrics = {
                             'last_check_ts': 0,
@@ -127,6 +124,6 @@ async def collectWebConfig(config, provider_metrics, config_node: dict = {}, dee
 
 
 async def GetWebConfig():
-    config = LoadConfig()
+    config = cfg.LoadConfig()
     provider_metrics = await GetStoredProviderMetrics(config)
     return await collectWebConfig(config, provider_metrics)

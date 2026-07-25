@@ -2,6 +2,8 @@ import valkey.asyncio as valkey
 from urllib.parse import urlparse
 from libs.config import GetConfig
 
+valkey_client = None
+
 
 def GetValkeyClient():
     config = GetConfig()
@@ -13,3 +15,29 @@ def GetValkeyClient():
 
     except ValueError as e:
         raise ValueError(f"database_uri is incorrect or not defined: {str(e)}")
+
+
+async def GetValueByKey(key):
+    global valkey_client
+    if valkey_client is None:
+        valkey_client = GetValkeyClient()
+
+    try:
+        return await valkey_client.get(key)
+    except:
+        # second try
+        valkey_client = GetValkeyClient()
+        return await valkey_client.get(key)
+
+
+async def SetValueByKey(key, value):
+    global valkey_client
+    if valkey_client is None:
+        valkey_client = GetValkeyClient()
+
+    try:
+        return await valkey_client.set(key, value)
+    except:
+        # second try
+        valkey_client = GetValkeyClient()
+        return await valkey_client.get(key, value)

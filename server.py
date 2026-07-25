@@ -5,8 +5,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from libs.helpers import GetWebConfig
-from libs.nodes import GetNodesMetrics
-from libs.nodes import GetNodeInfo
+from libs.nodes import GetNodeInfo, GetNodesMetrics
 
 # detect pytest
 # is_pytest = sys.argv[0].endswith('pytest')

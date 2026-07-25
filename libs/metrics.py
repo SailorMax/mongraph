@@ -3,10 +3,10 @@ import json
 import re
 import asyncio
 import httpx
+import libs.config as cfg
+import libs.db as db
+import libs.helpers as helpers
 from urllib.parse import urlparse, parse_qs
-from libs.config import GetConfig
-from libs.db import GetValkeyClient
-from libs.helpers import CollectNodesOfCursor
 from simpleeval import simple_eval
 
 status2idx = {
@@ -17,7 +17,6 @@ status2idx = {
 }
 status_pripority_names = list(reversed(list(status2idx.keys())[1:])) or []  # without 'unknown'
 
-valkey_client = None
 provider_metrics = {}
 
 
@@ -74,9 +73,7 @@ async def RefreshProviderMetrics(config):
                 for metric_name, metric_data in provider_data['metrics'].items():
 
                     db_key = f"providers / {provider_data['type']} / {metric_name}"
-                    item_metrics = None
-                    if valkey_client:
-                        item_metrics = await valkey_client.get(db_key)
+                    item_metrics = await db.GetValueByKey(db_key)
                     if item_metrics is None:
                         item_metrics = {
                             'last_check_ts': 0,
@@ -97,9 +94,8 @@ async def RefreshProviderMetrics(config):
                                     if resp_json['data']['resultType'] == 'vector':
                                         item_metrics['last_check_ts'] = now
                                         item_metrics['metrics'] = resp_json['data']['result']
-                                        if valkey_client:
-                                            await valkey_client.set(db_key, json.dumps(item_metrics))
-                                            print(f"{provider_name} / {metric_name} / refreshed as '{db_key}'")
+                                        await db.SetValueByKey(db_key, json.dumps(item_metrics))
+                                        print(f"{provider_name} / {metric_name} / refreshed as '{db_key}'")
                                     else:
                                         print(f"(!) {provider_name} / {metric_name} / Response has unknown resultType: {resp_json['resultType']}")
                                 else:
@@ -115,10 +111,7 @@ async def RefreshProviderMetrics(config):
 
 
 async def GetStoredNodeMetrics(node_name):
-    node_metrics = None
-    if valkey_client:
-        node_metrics = await valkey_client.get(node_name)
-
+    node_metrics = await db.GetValueByKey(node_name)
     if node_metrics is None:
         node_metrics = {
             'ts': 0,
@@ -128,6 +121,7 @@ async def GetStoredNodeMetrics(node_name):
         }
     else:
         node_metrics = json.loads(node_metrics)
+
     return node_metrics
 
 
@@ -156,10 +150,9 @@ async def StoreNodeStatus(node_name, status, description, node_metrics=None):
     node_metrics.update(latest_metrics)
     node_metrics['history'] = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
 
-    if valkey_client:
-        print('store:')
-        print([node_name, json.dumps(node_metrics)])
-        await valkey_client.set(node_name, json.dumps(node_metrics))
+    print('store:')
+    print([node_name, json.dumps(node_metrics)])
+    await db.SetValueByKey(node_name, json.dumps(node_metrics))
 
 
 async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
@@ -237,7 +230,7 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
 async def RefreshMetricsByConfig(config, provider_metrics, node_config=None):
     if node_config is None:
         node_config = config
-    config_nodes = await CollectNodesOfCursor(node_config, provider_metrics, config['providers'])
+    config_nodes = await helpers.CollectNodesOfCursor(node_config, provider_metrics, config['providers'])
 
     for k, v in config_nodes.items():
         await RefreshNodeMetrics(k, v, config, provider_metrics)
@@ -246,12 +239,9 @@ async def RefreshMetricsByConfig(config, provider_metrics, node_config=None):
 
 
 async def RefreshMetrics():
-    global valkey_client
     global provider_metrics
 
-    valkey_client = GetValkeyClient()
-
-    config = GetConfig()
+    config = cfg.GetConfig()
     provider_metrics = await RefreshProviderMetrics(config)
     await RefreshMetricsByConfig(config, provider_metrics)
     return

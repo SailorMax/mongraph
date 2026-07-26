@@ -81,7 +81,7 @@ async function MakePageByPathname(node_info) {
 		pathname.push(path_el['name'])
 	}
 	MakeBreadcrumbUI(breadcrumb);
-	pathname = '/' + pathname.join('/')
+	pathname = pathname.join('/')
 
 	// output graph
 	if (node_info.graph_file) {

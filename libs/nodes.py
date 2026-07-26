@@ -52,34 +52,37 @@ async def GetMetricOfNode(node_name, node_config, child_nodes):
         'ts': 0,
         'status': 'unknown',
     }
-    print(node_name)
-    print(json.dumps(node_config, indent=2))
-    print(json.dumps(child_nodes, indent=2))
+    # print(node_name)
+    # print(json.dumps(node_config, indent=2))
+    # print(json.dumps(child_nodes, indent=2))
     if 'metric_source' in node_config:
-        print(f'Get metrics of node "{node_name}"')
+        print(f'< get metrics by source "{node_name}"')
         node_metrics = await metrics.GetStoredNodeMetrics(node_name)
         node_worst_metric_data = node_metrics
     else:
         for node_name, node in child_nodes.items():
             metric_data = None
             if 'metric' in node:
-                print(f"get node metric: {node_name} -- {json.dumps(node, indent=2)}")
+                print(f"< get node metric: {node_name} -- {json.dumps(node, indent=2)}")
                 metric_data = node['metric']
             elif 'child_nodes' in node:
-                print(f"get metric of childs: {node_name}")
+                print(f"< get metric of childs: {node_name} -- {node['child_nodes'].keys()}")
                 metric_data = await GetMetricOfNode(node_name, node_config, node['child_nodes'])
             else:
-                print(f"get data from db: {node_name}")
+                print(f"< get data from db: {node_name}")
                 metric_data = await db.GetValueByKey(node_name)  # TODO: read from DB?
 
             if metric_data is not None:
                 if status2idx[node_worst_metric_data['status']] < status2idx[metric_data['status']]:
-                    node_worst_metric_data = metric_data
+                    node_worst_metric_data['ts'] = metric_data['ts']
+                    node_worst_metric_data['status'] = metric_data['status']
+                    node_worst_metric_data['details'] = f"{node_name}: {metric_data['details']}"  # add prefix to detect source of metric
 
-        # worst value without history and details
+        # worst value without history
         node_worst_metric_data = {
             'ts': node_worst_metric_data['ts'],
-            'status': node_worst_metric_data['status']
+            'status': node_worst_metric_data['status'],
+            'details': node_worst_metric_data['details']
         }
 
     return node_worst_metric_data

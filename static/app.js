@@ -10,9 +10,6 @@ mermaid.initialize({
 	securityLevel: 'strict'
 });
 
-const config_text = await LoadFile(`config`);
-const config = JSON.parse(config_text);
-
 
 async function drawDiagram(graphDefinition)
 {
@@ -52,7 +49,7 @@ async function ShowGraph(graph_text) {
 }
 
 async function LoadAndShowGraph(filename) {
-	var graph_text = await LoadFile('graphs/' + filename);
+	var graph_text = await LoadFile('/graphs/' + filename);
 	if (!graph_text)
 		return null;
 	var svg = ShowGraph(graph_text);
@@ -75,38 +72,21 @@ function MakeBreadcrumbUI(breadcrumb) {
 	}
 }
 
-async function MakePageByPathname(pathname, config) {
-	try {
-		var node_info = await LoadFile('node_info' + pathname);
-	} catch(e) {
-		console.error(e);
-	}
-
-
-	// find current node config
-	var breadcrumb = [{'name': '', 'label': 'Root'}];
-	var path_els = pathname.split('/').slice(1);
-	for (const path_el of path_els) {
-		if (path_el === '')
-			break;
-
-		if (config['child_nodes'] && path_el in config['child_nodes'])
-			config = config['child_nodes'][path_el];
-		else if (config['nodes'] && path_el in config['nodes'])
-			config = config['nodes'][path_el];
-		else
-			break;
-
-		breadcrumb.push({'name': path_el, 'label': config['label']});
-	}
-
+async function MakePageByPathname(node_info) {
 	// output Broadcrumb
+	var pathname = []
+	var breadcrumb = [{'name': '', 'label': 'Root'}];
+	for (const path_el of node_info.node_deep) {
+		breadcrumb.push(path_el);
+		pathname.push(path_el['name'])
+	}
 	MakeBreadcrumbUI(breadcrumb);
+	pathname = '/' + pathname.join('/')
 
 	// output graph
-	if (config.graph_file) {
+	if (node_info.graph_file) {
 		try {
-			var svg = await LoadAndShowGraph(config.graph_file);
+			var svg = await LoadAndShowGraph(node_info.graph_file);
 		} catch(e) {
 			console.error(e);
 		}
@@ -116,7 +96,7 @@ async function MakePageByPathname(pathname, config) {
 		// create graph by config
 		console.info('Create graph by config');
 		var graph_lines = ['block', 'columns 7']  // no links + possible many blocks => use block-graph
-		var nodes = ('nodes' in config ? config['nodes'] : config['child_nodes']);
+		var nodes = node_info['child_nodes'];
 		if (nodes) {
 			for (const k in nodes) {
 				if (nodes[k]['label'])
@@ -129,103 +109,43 @@ async function MakePageByPathname(pathname, config) {
 	}
 
 	// add links to nodes
-	var nodes = ('nodes' in config ? config['nodes'] : config['child_nodes']);
+	var nodes = node_info['child_nodes'];
 	if (nodes) {
 		for (const k in nodes) {
 			if ('child_nodes' in nodes[k]) {
 				const el = mm_control.GetSvgNodeById(svg, k);
-				mm_control.SetupLink(el, `${pathname}${k}`);
+				mm_control.SetupLink(el, `${pathname}/${k}`);
 			}
 		}
 	}
 
-	svg['myConfig'] = config;
+	svg['myConfig'] = node_info;
 	return svg;
 }
 
-function GetLatestMetricData(metric)
+async function LoadNodeInfo()
 {
-	return {
-		'ts': metric['last_check_ts'],
-		'status': metric['last_check_status'],
-		'value': metric['metrics_log'].length ? metric['metrics_log'][0]['description'] : null,
-	};
+	const node_info_text = await LoadFile('/node_info' + window.location.pathname);
+	return JSON.parse(node_info_text);
 }
 
-function AssignMetricsToConfig(metrics, config)
+async function RefreshMetrics(svg, node_info=null)
 {
-	var abnormal_statuses = {};
-	var config_nodes = ('nodes' in config ? config['nodes'] : config['child_nodes']);
-	if (config_nodes) {
-		for (const k in config_nodes) {
-			if (metrics[k]) {
-				config_nodes[k]['latest_metrics'] = metrics[k];
-				if (['warning', 'danger'].indexOf(metrics[k]['last_check_status']) >= 0)
-					abnormal_statuses[k] = metrics[k];
-			}
-			const child_abnormal_metrics = AssignMetricsToConfig(metrics, config_nodes[k]);
-			config_nodes[k]['child_abnormal_metrics'] = child_abnormal_metrics;
-			Object.assign(abnormal_statuses, child_abnormal_metrics);
-		}
-	}
-	return abnormal_statuses;
-}
+	if (!node_info)
+		node_info = await LoadNodeInfo();
 
-async function RefreshMetrics(svg, config)
-{
-	var metrics_text = await LoadFile('metrics');
-	if (!metrics_text)
-		return null;
-
-	var metrics = JSON.parse(metrics_text);
-	if (metrics)
+	if (node_info['child_nodes'])
 	{
-		const abnormal_statuses = AssignMetricsToConfig(metrics, config);
-		if (Object.keys(abnormal_statuses).length > 0) {
-			// additional highlight the problem in the project
-		}
-		for (const el_name in metrics) {
-			const node = mm_control.GetSvgNodeById(svg, el_name);
-			if (node) {
-				const metric = GetLatestMetricData(metrics[el_name]);
-				mm_control.SetupAttention(node, metric['status'], metric['value']);
-			}
-		}
-
-		const status2idx = {
-			'normal': 0,
-			'warning': 1,
-			'danger': 2,
-		}
-		var config_nodes = ('nodes' in svg['myConfig']
-							? svg['myConfig']['nodes']
-							: svg['myConfig']['child_nodes']
-							);
-		if (config_nodes) {
-			for (const k in config_nodes) {
-				if (!config_nodes[k]['latest_metrics'] && config_nodes[k]['child_abnormal_metrics']) {
-					const node = mm_control.GetSvgNodeById(svg, k);
-					if (node) {
-						const child_abnormal_metrics = config_nodes[k]['child_abnormal_metrics'];
-						const sorted_abnormal_keys = Object.keys(child_abnormal_metrics).sort(
-							(a,b) => status2idx[child_abnormal_metrics[b]['last_check_status']]-status2idx[child_abnormal_metrics[a]['last_check_status']]
-						);
-						let worst_status = 'normal';
-						let abnormal_metrics = [];
-						for (const name of sorted_abnormal_keys) {
-							const metric = GetLatestMetricData(child_abnormal_metrics[name]);
-							if (status2idx[worst_status] < status2idx[metric['status']])
-								worst_status = metric['status'];
-							abnormal_metrics.push(`${name}: ${metric['value']}`);
-						}
-						mm_control.SetupAttention(node, worst_status, abnormal_metrics.join('\n'));
-					}
-				}
+		for (const [el_name, node] of Object.entries(node_info['child_nodes'])) {
+			const sv_node = mm_control.GetSvgNodeById(svg, el_name);
+			if (sv_node) {
+				const metric = node['metric'];
+				mm_control.SetupAttention(sv_node, metric['status'], metric['details']);
 			}
 		}
 	}
 
-	window.setTimeout(()=>RefreshMetrics(svg, config), 5000);
+	window.setTimeout(()=>RefreshMetrics(svg), 5000);
 }
 
 // window.addEventListener('popstate', async function(event) {
@@ -238,8 +158,9 @@ async function RefreshMetrics(svg, config)
 // });
 
 // 1. Initial draw on page load
-const svg = await MakePageByPathname(window.location.pathname, config)
-RefreshMetrics(svg, config);
+const node_info = await LoadNodeInfo();
+const svg = await MakePageByPathname(node_info);
+RefreshMetrics(svg, node_info);
 
 /*
 var el = mm_control.GetSvgNodeById(svg, 'test1')

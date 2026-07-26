@@ -21,13 +21,13 @@ provider_metrics = {}
 
 
 def GetStatusByValue(value, node_config, config):
-    status, description = 'unknown', ''
+    status, details = 'unknown', ''
 
     if value is None:
-        description = 'Could not detect status. Value is empty.'
+        details = 'Could not detect status. Value is empty.'
     elif 'value_source' in node_config:
         status = 'normal' if value == node_config['normal_level'] else 'danger'
-        description = f"{node_config['value_source']}: {value}"
+        details = f"{node_config['value_source']}: {value}"
     else:
         levels_config = node_config['levels'] if 'levels' in node_config else config['defaults']['levels']
         levels_config['direction'] = 'up'
@@ -40,9 +40,9 @@ def GetStatusByValue(value, node_config, config):
         if type(value) is list:
             values = sorted(value, key=lambda item: float(item[1]), reverse=(levels_config['direction'] != 'down'))
             value = values[0][1]
-            description = "\n".join([f"{float(item[1]): >14,.2f}{levels_config['measurement']}  {item[0]}" for item in values])
+            details = "\n".join([f"{float(item[1]): >14,.2f}{levels_config['measurement']}  {item[0]}" for item in values])
         else:
-            description = f"{value}{levels_config['measurement']}"
+            details = f"{value}{levels_config['measurement']}"
 
         try:
             value = float(value)
@@ -58,7 +58,7 @@ def GetStatusByValue(value, node_config, config):
             print(e)
             status = 'danger'
 
-    return status, description
+    return status, details
 
 
 async def RefreshProviderMetrics(config):
@@ -116,7 +116,7 @@ async def GetStoredNodeMetrics(node_name):
         node_metrics = {
             'ts': 0,
             'status': 'unknown',
-            'description': '',
+            'details': '',
             'history': []
         }
     else:
@@ -137,14 +137,14 @@ def AppendLogFreshMetrics(history, metrics):
     return history
 
 
-async def StoreNodeStatus(node_name, status, description, node_metrics=None):
+async def StoreNodeStatus(node_name, status, details, node_metrics=None):
     if node_metrics is None:
         node_metrics = await GetStoredNodeMetrics(node_name)
 
     latest_metrics = {
         'ts': int(time.time()),
         'status': status,
-        'description': description
+        'details': details
     }
 
     node_metrics.update(latest_metrics)
@@ -221,8 +221,8 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
             case _:
                 print(f"(!) Metric source '{source_type}' is unknown.")
 
-        status, description = GetStatusByValue(value, node_config, config)
-        await StoreNodeStatus(node_name, status, description, node_metrics)
+        status, details = GetStatusByValue(value, node_config, config)
+        await StoreNodeStatus(node_name, status, details, node_metrics)
         # print(json.dumps(node_metrics, indent=2))
     return
 

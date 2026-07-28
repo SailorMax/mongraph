@@ -105,17 +105,22 @@ function MakeBreadcrumbUI(breadcrumb) {
 
 function CollectHistory(child_nodes, parents=[]) {
 	var history = [];
+	var attention_statuses = ['warning', 'danger']
 	for (const node_name in child_nodes) {
 		const child_node_metric = child_nodes[node_name]['metric'];
-		if (child_node_metric && child_node_metric['history'])
+		if (child_node_metric && child_node_metric['history']) {
+			let row_nr = 0;
 			for (const hst_row of child_node_metric['history']) {
 				const history_item = {
 					node_parents: parents,
 					node_name: node_name,
+					in_focus: !row_nr && attention_statuses.indexOf(hst_row['status']) >= 0,
 					...hst_row
 				};
 				history.push(history_item);
+				row_nr++;
 			}
+		}
 
 		if (child_nodes[node_name]['child_nodes'])
 			history.push(...CollectHistory(child_nodes[node_name]['child_nodes'], [...parents, node_name]));
@@ -125,10 +130,31 @@ function CollectHistory(child_nodes, parents=[]) {
 
 function FillHistoryTable(node_info) {
 	var history = CollectHistory(node_info['child_nodes'])
-	history.sort((a, b) => b['ts'] - a['ts'])
+	history.sort((a, b) => b['in_focus'] != a['in_focus'] ? (b['in_focus'] - a['in_focus']) : (b['ts'] - a['ts']))
 
 	var history_table = document.getElementById('history');
+	var durationFormatter = new Intl.DurationFormat('en-US', { style: 'short' });
+
+	const now = new Date();
 	for (const hst_row of history) {
+		const row_dt = new Date(hst_row['ts']*1000);
+		let delta = now - row_dt;
+
+		if (hst_row['in_focus']) {
+			const delta_days = Math.floor(delta / 24*60*60*1000);
+			delta %= (24*60*60*1000);
+			const delta_hours = Math.floor(delta / 60*60*1000)
+			delta %= (60*60*1000);
+			const delta_minutes = Math.floor(delta / 60*1000)
+
+			let time_since = durationFormatter.format({
+				days: delta_days,
+				hours: delta_hours,
+				minutes: delta_minutes
+			});
+			console.log([row_dt, time_since]);
+		}
+
 		const new_row = history_table.insertRow(-1);
 		new_row.insertCell(0).textContent = (new Date(hst_row['ts']*1000)).toISOString() + "\n" + hst_row['status'];
 		new_row.insertCell(1).textContent = hst_row['node_name'];

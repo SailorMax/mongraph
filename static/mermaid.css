@@ -7,19 +7,29 @@
   }
 }
 
+@keyframes slightly-fade-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+
 .mermaid g.node.normal rect.label-container {
     fill: #55ff55 !important;
-    animation: fade-blink 5s linear infinite;
+    animation: slightly-fade-blink 5s linear infinite;
 }
 
 .mermaid g.edgeLabels g.label.normal span.edgeLabel p {
     background-color: #55ff55 !important;
-    animation: fade-blink 5s linear infinite;
+    animation: slightly-fade-blink 5s linear infinite;
 }
 
 .mermaid g.edgePaths path.normal {
     stroke: #55ff55 !important;
-    animation: fade-blink 5s linear infinite;
+    animation: slightly-fade-blink 5s linear infinite;
 }
 
 

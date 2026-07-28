@@ -5,11 +5,10 @@ import libs.db as db
 import libs.config as cfg
 
 from urllib.parse import urlparse, parse_qs
-from simpleeval import simple_eval
+from simpleeval import simple_eval, NameNotDefined
 
 
 async def GetStoredProviderMetrics(config):
-
     provider_metrics = {}
     providers = config['providers']
     for provider_name, provider_data in providers.items():
@@ -70,24 +69,32 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                                     current_provider_metrics_list = current_provider_metrics[provider_metric_name]['metrics']
 
                                     for metric_row in current_provider_metrics_list:
-                                        if node_name_attr not in metric_row['metric']:
-                                            provider_path = f"{parsed_uri.netloc} / {provider_metric_name}"
-                                            print(f"(!) attr '{node_name_attr}' not found in metrics of provider {provider_path}: {metric_row}")
-                                            continue
-                                        node_name = metric_row['metric'][node_name_attr]
-                                        if simple_eval(metric_filter, names=metric_row['metric']):
-                                            if node_name not in virtual_node_names:
-                                                virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
-                                            node_metric_name = f"{node_name}--{provider_metric_name}"
-                                            if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
-                                                node_metric_filter = f"{metric_filter} and {node_name_attr} == '{node_name}'"
-                                                virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
-                                                    'virtual': True,
-                                                    'label': provider_metric_name,
-                                                    'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
-                                                    'metric_data': []
-                                                }
-                                            virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
+                                        row_node_name_attr = node_name_attr
+                                        if row_node_name_attr not in metric_row['metric']:
+                                            row_node_name_attr = 'instance'
+                                            # provider_path = f"{parsed_uri.netloc} / {provider_metric_name}"
+                                            # print(f"(!) attr '{node_name_attr}' not found in metrics of provider {provider_path}: {metric_row}")
+                                            # continue
+                                        node_name = metric_row['metric'][row_node_name_attr]
+
+                                        try:
+                                            if simple_eval(metric_filter, names=metric_row['metric']):
+                                                if node_name not in virtual_node_names:
+                                                    virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
+                                                node_metric_name = f"{node_name}--{provider_metric_name}"
+                                                if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
+                                                    node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
+                                                    virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
+                                                        'virtual': True,
+                                                        'label': provider_metric_name,
+                                                        'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
+                                                        'metric_data': []
+                                                    }
+                                                virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
+                                        except NameNotDefined as e:
+                                            print(f"(!) {str(e)}")
+                                            print(f"Available names: {json.dumps(metric_row['metric'])}")
+
                     else:
                         print(f"(!) Provider '{parsed_uri.netloc}' not found from uri {provider_nodes_uri}")
 

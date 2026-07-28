@@ -20,29 +20,45 @@ status_pripority_names = list(reversed(list(status2idx.keys())[1:])) or []  # wi
 provider_metrics = {}
 
 
+def GetUserFriendlyValue(value, levels_config):
+    measurement = levels_config['measurement'] if 'measurement' in levels_config else ''
+    if float(value) >= 1000:
+        return f"{float(value): >14,.2f}{measurement}"
+    return f"{value}{measurement}"
+
+
 def GetStatusByValue(value, node_config, config):
     status, details = 'unknown', ''
+    levels_config = node_config['levels'] if 'levels' in node_config else config['defaults']['levels']
 
     if value is None:
         details = 'Could not detect status. Value is empty.'
-    elif 'value_source' in node_config:
-        status = 'normal' if value == node_config['normal_level'] else 'danger'
-        details = f"{node_config['value_source']}: {value}"
+    elif 'normal' in levels_config and levels_config['normal']:
+        status = 'normal' if simple_eval(levels_config['normal'], names={'value': value}) else 'danger'
+
+        if 'value_source' in node_config:
+            details = f"{node_config['value_source']}: {value}"
+        else:
+            details = f"{value}"
+
+        if status2idx[status] > 0:
+            if status in levels_config:
+                details += f"\n({status}: {levels_config[status]})"
+            else:
+                details += f"\n(normal: {levels_config['normal']})"
     else:
-        levels_config = node_config['levels'] if 'levels' in node_config else config['defaults']['levels']
         levels_config['direction'] = 'up'
         if ('danger' in levels_config
             and re.search(r'(value\s*<=?|>=?\s*value)', levels_config['danger'])
             ):
             levels_config['direction'] = 'down'
-        print(levels_config)
 
         if type(value) is list:
             values = sorted(value, key=lambda item: float(item[1]), reverse=(levels_config['direction'] != 'down'))
             value = values[0][1]
-            details = "\n".join([f"{float(item[1]): >14,.2f}{levels_config['measurement']}  {item[0]}" for item in values])
+            details = "\n".join([f"{GetUserFriendlyValue(item[1], levels_config)}  {item[0]}" for item in values])
         else:
-            details = f"{value}{levels_config['measurement']}"
+            details = GetUserFriendlyValue(value, levels_config)
 
         try:
             value = float(value)
@@ -57,6 +73,9 @@ def GetStatusByValue(value, node_config, config):
         except Exception as e:
             print(e)
             status = 'danger'
+
+        if status2idx[status] > 0:
+            details += f"\n({status}: {levels_config[status]})"
 
     return status, details
 
@@ -150,8 +169,8 @@ async def StoreNodeStatus(node_name, status, details, node_metrics=None):
     node_metrics.update(latest_metrics)
     node_metrics['history'] = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
 
-    print('store:')
-    print([node_name, json.dumps(node_metrics)])
+    # print('store:')
+    # print([node_name, json.dumps(node_metrics)])
     await db.SetValueByKey(node_name, json.dumps(node_metrics))
 
 
@@ -164,15 +183,20 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
 
     if node_metrics['ts'] + update_interval < int(time.time()):
         value = None
-        source_type, cmd = node_config['metric_source'].split('://')
+        source_type, cmd = node_config['metric_source'].split('://', maxsplit=1)
         match source_type:
             case 'metrics+provider':
                 path, query = cmd.split('?', 2)
-                parsed_query = parse_qs(query)
+                # parsed_query = parse_qs(query)
 
                 provider_name, metric_name = path.split('/', 2)
-                metric_filter = parsed_query['filter'][0]
+                # metric_filter = parsed_query['filter'][0]
                 # print([provider_name, metric_name, node_name, metric_filter])
+
+                if 'levels' not in node_config:
+                    provider_metric_config = config['providers'][provider_name]['metrics'][metric_name]
+                    if 'levels' in provider_metric_config:
+                        node_config['levels'] = provider_metric_config['levels']
 
                 # current_provider_metrics = provider_metrics[provider_name]
                 # metrics_obj = current_provider_metrics[metric_name]
@@ -215,7 +239,7 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
                 except httpx.HTTPStatusError as exc:
                     value = exc.response.status_code
                 except Exception as e:
-                    print(e)
+                    print(f"(!) {str(e)}")
                     value = None
 
             case _:

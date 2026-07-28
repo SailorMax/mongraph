@@ -1,4 +1,5 @@
 import json
+import base64
 import libs.config as cfg
 import libs.db as db
 import libs.metrics as metrics
@@ -56,20 +57,20 @@ async def GetMetricOfNode(node_name, node_config, child_nodes):
     # print(json.dumps(node_config, indent=2))
     # print(json.dumps(child_nodes, indent=2))
     if 'metric_source' in node_config:
-        print(f'< get metrics by source "{node_name}"')
+        # print(f'< get metrics by source "{node_name}"')
         node_metrics = await metrics.GetStoredNodeMetrics(node_name)
         node_worst_metric_data = node_metrics
     else:
         for node_name, node in child_nodes.items():
             metric_data = None
             if 'metric' in node:
-                print(f"< get node metric: {node_name} -- {json.dumps(node, indent=2)}")
+                # print(f"< get node metric: {node_name} -- {json.dumps(node, indent=2)}")
                 metric_data = node['metric']
             elif 'child_nodes' in node:
-                print(f"< get metric of childs: {node_name} -- {node['child_nodes'].keys()}")
+                # print(f"< get metric of childs: {node_name} -- {node['child_nodes'].keys()}")
                 metric_data = await GetMetricOfNode(node_name, node_config, node['child_nodes'])
             else:
-                print(f"< get data from db: {node_name}")
+                # print(f"< get data from db: {node_name}")
                 metric_data = await db.GetValueByKey(node_name)  # TODO: read from DB?
 
             if metric_data is not None:
@@ -82,19 +83,21 @@ async def GetMetricOfNode(node_name, node_config, child_nodes):
         node_worst_metric_data = {
             'ts': node_worst_metric_data['ts'],
             'status': node_worst_metric_data['status'],
-            'details': node_worst_metric_data['details']
+            'details': node_worst_metric_data['details'] if 'details' in node_worst_metric_data else ''
         }
+        if node_worst_metric_data['status'] == 'normal':
+            node_worst_metric_data['details'] = ''
 
     return node_worst_metric_data
 
 
 async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_config):
     child_nodes = {}
-    print(f"1. {node_config['label'] if 'label' in node_config else node_config}")
+    # print(f"1. {node_config['label'] if 'label' in node_config else node_config}")
     child_nodes_config = await helpers.CollectNodesOfCursor(node_config, provider_metrics, providers_config)
-    print(child_nodes_config.keys())
+    # print(child_nodes_config.keys())
     for child_name, child_node_config in child_nodes_config.items():
-        print(f"2. {child_name}: {json.dumps(child_node_config, indent=2)}")
+        # print(f"2. {child_name}: {json.dumps(child_node_config, indent=2)}")
         sub_child_nodes = await CollectNodesMetricSubTree(child_node_config, provider_metrics, providers_config)
         child_nodes[child_name] = {
             'label': child_node_config['label'] if 'label' in child_node_config else child_name,
@@ -114,15 +117,23 @@ async def GetNodeInfo(node_path: str):
     # - - name: label, metrics
     config = cfg.GetConfig()
 
+    # collect childs
+    provider_metrics = await helpers.GetStoredProviderMetrics(config)
+    child_nodes = await CollectNodesMetricSubTree(config, provider_metrics, config['providers'])
+
     # find config_node
     node_deep = []
-    node_config = config
-    if node_path != '':
+    node_config = {'child_nodes': child_nodes}
+    if node_path == '':
+        node_config['graph_file'] = config['graph_file']
+    else:
         path_els = node_path.split('/')
+
         for node_name in path_els:
-            if 'nodes' in node_config:
-                node_config = node_config['nodes'][node_name]
-            elif 'child_nodes' in node_config:
+            if node_name[:7] == 'base64,':
+                node_name = base64.urlsafe_b64decode(node_name[7:]).decode('utf-8')
+
+            if 'child_nodes' in node_config:
                 node_config = node_config['child_nodes'][node_name]
             else:
                 break
@@ -131,18 +142,13 @@ async def GetNodeInfo(node_path: str):
                 'name': node_name,
                 'label': node_config['label']
             })
-            break
-
-    # collect childs
-    provider_metrics = await helpers.GetStoredProviderMetrics(config)
-    child_nodes = await CollectNodesMetricSubTree(node_config, provider_metrics, config['providers'])
 
     # collect info
     node_info = {
         'project_name': config['label'],
         'graph_file': node_config['graph_file'] if 'graph_file' in node_config else '',
         'node_deep': node_deep,
-        'child_nodes': child_nodes
+        'child_nodes': node_config['child_nodes'] if 'child_nodes' in node_config else []
     }
 
     return node_info

@@ -9,6 +9,13 @@ function GetSvgElementsPrefix(svg)
 	return `${svg.id}-${middle_prefix}-`
 }
 
+export function EncodeBlockName(name, graph_type='flowchart')
+{
+	if (graph_type == 'flowchart' && name.match(/^[a-z0-9-]+$/i))
+		return name;
+	return btoa(name).replaceAll('/', '_').replaceAll('+', '-').replaceAll('=', 'Ξ');
+}
+
 export function GetSvgNodeById(svg, id)
 {
 	var idPrefix = GetSvgElementsPrefix(svg);
@@ -19,11 +26,17 @@ export function GetSvgNodeById(svg, id)
 	// console.log(els);
 	for (var i=0; i<els.length; i++)
 	{
-		if (els[i].id.indexOf('≡') > 0)  // auto-generated block-diagram
-			nodeId = idPrefix + id.replaceAll('-', '≡');
-		else
-			nodeId = idPrefix + id;
+		// normal name
+		nodeId = idPrefix + id;
+		if (els[i].id == nodeId || els[i].id.indexOf(nodeId + '-') === 0)
+			return els[i];
 
+		// name with special symbols
+		nodeId = idPrefix + EncodeBlockName(id, 'flowchart');
+		if (els[i].id == nodeId || els[i].id.indexOf(nodeId + '-') === 0)
+			return els[i];
+
+		nodeId = idPrefix + EncodeBlockName(id, 'block');
 		if (els[i].id == nodeId || els[i].id.indexOf(nodeId + '-') === 0)
 			return els[i];
 	}

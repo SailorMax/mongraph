@@ -9,19 +9,24 @@
 </head>
 
 <body>
-	<h1>Project name</h1>
-	<nav id="breadcrumb" aria-label="Breadcrumb" class="breadcrumb">
-		<ol></ol>
-	</nav>
+	<header>
+		<h1><!-- Project name --></h1>
 
-	<table id="log">
-	<tr>
-		<th>Timestamp</th>
-		<th>Node</th>
-		<th>Message</th>
-	</tr>
-	</table>
+		<div class="history_box">
+			<table id="history" aria-label="History" class="history">
+			<tr>
+				<th>Timestamp</th>
+				<th>Node</th>
+				<th>Message</th>
+			</tr>
+			</table>
+		</div>
 
-	<pre id="graph" class="mermaid"></pre>
+		<nav id="breadcrumb" aria-label="Breadcrumb" class="breadcrumb">
+			<ol></ol>
+		</nav>
+	</header>
+
+	<pre id="graph" aria-label="Graph" class="mermaid"></pre>
 </body>
 </html>

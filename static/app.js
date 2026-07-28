@@ -48,10 +48,38 @@ async function ShowGraph(graph_text) {
 	return svg;
 }
 
-async function LoadAndShowGraph(filename) {
-	var graph_text = await LoadFile('/graphs/' + filename);
-	if (!graph_text)
-		return null;
+function GetChildNamesForGraph(node_info, graph_type='flowchart') {
+	var node_name = []
+	var nodes = node_info['child_nodes'];
+	if (nodes) {
+		for (const k in nodes) {
+			if (nodes[k]['label'])
+				node_name.push(`${mm_control.EncodeBlockName(k, graph_type)}["${nodes[k]['label']}"]`);
+			else
+				node_name.push(`${mm_control.EncodeBlockName(k, graph_type)}["${k}"]`);
+		}
+	}
+	return node_name;
+}
+
+function GetDefaultGraphByConfig(node_info) {
+	console.info('Create graph by config');
+	var graph_lines = ['block', 'columns 7']  // no links + possible many blocks => use block-graph
+	graph_lines.push(...GetChildNamesForGraph(node_info, 'block'))
+	console.log(graph_lines.join("\n"));
+
+	return graph_lines.join("\n")
+}
+
+async function LoadAndShowGraph(node_info) {
+	var graph_text = await LoadFile('/graphs/' + node_info.graph_file);
+	if (graph_text) {
+		// readd all nodes from config to do not miss something
+		graph_text += "\n\n" + GetChildNamesForGraph(node_info).join("\n");
+	} else {
+		graph_text = GetDefaultGraphByConfig(node_info);
+	}
+	console.log(graph_text);
 	var svg = ShowGraph(graph_text);
 	return svg;
 }
@@ -60,33 +88,88 @@ function MakeBreadcrumbUI(breadcrumb) {
 	var bc_node = document.querySelector('#breadcrumb OL');
 	bc_node.replaceChildren();
 
-	var names_list = [''];
+	var names_list = [];
 	for (const el of breadcrumb) {
 		const label = el['label'] !== '' ? el['label'] : el['name'];
 		names_list.push(el['name']);
-		const path = names_list.join('/');
-		if (names_list.length > breadcrumb.length)
+		let path = '/';
+		if (names_list.length > 1)
+			path = names_list.join('/');
+
+		if (names_list.length >= breadcrumb.length)
 			bc_node.insertAdjacentHTML('beforeend', `<li><span aria-current="page">${label}</span></li>`);
 		else
 			bc_node.insertAdjacentHTML('beforeend', `<li><a href="${path}">${label}</a></li>`);
 	}
 }
 
+function CollectHistory(child_nodes, parents=[]) {
+	var history = [];
+	for (const node_name in child_nodes) {
+		const child_node_metric = child_nodes[node_name]['metric'];
+		if (child_node_metric && child_node_metric['history'])
+			for (const hst_row of child_node_metric['history']) {
+				const history_item = {
+					node_parents: parents,
+					node_name: node_name,
+					...hst_row
+				};
+				history.push(history_item);
+			}
+
+		if (child_nodes[node_name]['child_nodes'])
+			history.push(...CollectHistory(child_nodes[node_name]['child_nodes'], [...parents, node_name]));
+	}
+	return history;
+}
+
+function FillHistoryTable(node_info) {
+	var history = CollectHistory(node_info['child_nodes'])
+	history.sort((a, b) => b['ts'] - a['ts'])
+
+	var history_table = document.getElementById('history');
+	for (const hst_row of history) {
+		const new_row = history_table.insertRow(-1);
+		new_row.insertCell(0).textContent = (new Date(hst_row['ts']*1000)).toISOString() + "\n" + hst_row['status'];
+		new_row.insertCell(1).textContent = hst_row['node_name'];
+		new_row.insertCell(2).textContent = hst_row['details'];
+
+		mm_control.SetupAttention(new_row, hst_row['status']);
+	}
+}
+
+function GetPreparedPathName(el_name) {
+	if (el_name.indexOf('/') >= 0)
+		return `base64,${btoa(el_name).replaceAll('+', '-').replaceAll('/', '_')}`
+	return el_name;
+}
+
 async function MakePageByPathname(node_info) {
+	// project name
+	document.getElementsByTagName('H1')[0].innerText = node_info.project_name;
+
 	// output Broadcrumb
 	var pathname = []
 	var breadcrumb = [{'name': '', 'label': 'Root'}];
 	for (const path_el of node_info.node_deep) {
 		breadcrumb.push(path_el);
-		pathname.push(path_el['name'])
+		pathname.push(GetPreparedPathName(path_el['name']))
 	}
 	MakeBreadcrumbUI(breadcrumb);
-	pathname = pathname.join('/')
+	if (pathname.length) {
+		pathname.unshift('');	// slash before path
+		pathname = pathname.join('/');
+	} else {
+		pathname = '';
+	}
+
+	// output history table
+	FillHistoryTable(node_info)
 
 	// output graph
 	if (node_info.graph_file) {
 		try {
-			var svg = await LoadAndShowGraph(node_info.graph_file);
+			var svg = await LoadAndShowGraph(node_info);
 		} catch(e) {
 			console.error(e);
 		}
@@ -94,18 +177,7 @@ async function MakePageByPathname(node_info) {
 
 	if (!svg) {
 		// create graph by config
-		console.info('Create graph by config');
-		var graph_lines = ['block', 'columns 7']  // no links + possible many blocks => use block-graph
-		var nodes = node_info['child_nodes'];
-		if (nodes) {
-			for (const k in nodes) {
-				if (nodes[k]['label'])
-					graph_lines.push(`${k.replaceAll('-', '≡')}["${nodes[k]['label']}"]`);
-				else
-					graph_lines.push(`${k.replaceAll('-', '≡')}["${k}"]`);
-			}
-		}
-		var svg = await ShowGraph(graph_lines.join("\n"));
+		var svg = await ShowGraph(GetDefaultGraphByConfig(node_info));
 	}
 
 	// add links to nodes
@@ -114,7 +186,8 @@ async function MakePageByPathname(node_info) {
 		for (const k in nodes) {
 			if ('child_nodes' in nodes[k]) {
 				const el = mm_control.GetSvgNodeById(svg, k);
-				mm_control.SetupLink(el, `${pathname}/${k}`);
+				console.log(`${pathname}/${GetPreparedPathName(k)}`);
+				mm_control.SetupLink(el, `${pathname}/${GetPreparedPathName(k)}`);
 			}
 		}
 	}

@@ -1,5 +1,70 @@
+BODY {
+  background-color: #646b79;
+  margin: 0;
+}
+
+@keyframes fade-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes slightly-fade-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* https://picocss.com/docs/colors */
+HEADER {
+  padding: 10px;
+  background-color: rgb(61, 71, 92);
+
+  animation: slightly-fade-blink 30s linear infinite;
+}
+
+H1, .history_box, .breadcrumb {
+  width: 50%;
+  margin: 10px auto;
+  color: #fff;
+  font-family: monospace;
+}
+
+.history_box {
+  max-height: 100px;
+  overflow: auto;
+}
+
+.history th:nth-child(1) { width: 200px; }
+.history th:nth-child(2) { width: 300px; }
+
+.history tr.warning {
+    background-color: #ffff55 !important;
+    color: black;
+}
+
+.history tr:nth-child(1).warning {
+    animation: fade-blink 1.5s linear infinite;
+}
+
+.history tr.danger {
+    background-color: #ff5555 !important;
+}
+
+.history tr:nth-child(1).danger {
+    animation: fade-blink 1s linear infinite;
+}
+
+
 .breadcrumb {
   padding: 0 0.5rem;
+  font-size: 1.2rem;
 }
 
 .breadcrumb ol {
@@ -13,6 +78,14 @@
 
 .breadcrumb li:not(:last-child)::after {
   display: inline-block;
-  margin: 0 0.25rem;
+  margin: 0 0.5rem;
   content: "→";
+}
+
+.breadcrumb A, .breadcrumb A:visited {
+  color: #b0b9d0;
+}
+
+.mermaid {
+  text-align: center;
 }

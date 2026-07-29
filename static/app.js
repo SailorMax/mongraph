@@ -212,8 +212,7 @@ async function MakePageByPathname(node_info) {
 		pathname = '';
 	}
 
-	// output history table
-	FillHistoryTable(node_info)
+	// prepare history table
 	document.getElementById('history-resizer').addEventListener('click', function(e) {
 		var box = e.target.closest('.history_box');
 		box.classList.toggle('fullsize');
@@ -287,6 +286,10 @@ async function RefreshMetrics(svg, node_info=null)
 
 	if (node_info['child_nodes'])
 	{
+		// table
+		FillHistoryTable(node_info);
+
+		// graph
 		for (const [el_name, node] of Object.entries(node_info['child_nodes'])) {
 			const sv_node = mm_control.GetSvgNodeById(svg, el_name);
 			if (sv_node) {

@@ -26,7 +26,8 @@ async function drawDiagram(graphDefinition)
 		outputBox.childNodes[0]['myDiagramType'] = diagramType;
 		return outputBox.childNodes[0];
 	} catch (error) {
-		console.error("Mermaid rendering failed:", error);
+		console.error("Mermaid rendering failed:" + error);
+		console.log(graphDefinition)
 	}
 }
 
@@ -66,7 +67,6 @@ function GetDefaultGraphByConfig(node_info) {
 	console.info('Create graph by config');
 	var graph_lines = ['block', 'columns 7']  // no links + possible many blocks => use block-graph
 	graph_lines.push(...GetChildNamesForGraph(node_info, 'block'))
-	console.log(graph_lines.join("\n"));
 
 	return graph_lines.join("\n")
 }
@@ -79,7 +79,6 @@ async function LoadAndShowGraph(node_info) {
 	} else {
 		graph_text = GetDefaultGraphByConfig(node_info);
 	}
-	console.log(graph_text);
 	var svg = ShowGraph(graph_text);
 	return svg;
 }
@@ -114,6 +113,7 @@ function CollectHistory(child_nodes, parents=[]) {
 				const history_item = {
 					node_parents: parents,
 					node_name: node_name,
+					metric_node: child_nodes[node_name]['metric_node'],
 					in_focus: !row_nr && attention_statuses.indexOf(hst_row['status']) >= 0,
 					...hst_row
 				};
@@ -128,39 +128,62 @@ function CollectHistory(child_nodes, parents=[]) {
 	return history;
 }
 
+function GetDurationBetweenDates(dt1, dt2) {
+	var delta = (dt2 - dt1) / (60*1000);
+	var delta_days = Math.floor(delta / (24*60));
+	delta %= (24*60);
+	var delta_hours = Math.floor(delta / 60)
+	delta %= (60);
+	var delta_minutes = Math.floor(delta)
+
+	var durationFormatter = new Intl.DurationFormat('en-US', { style: 'short' });
+	return durationFormatter.format({
+		days: delta_days,
+		hours: delta_hours,
+		minutes: delta_minutes
+	});
+}
+
 function FillHistoryTable(node_info) {
-	var history = CollectHistory(node_info['child_nodes'])
+	var parents = node_info['node_deep'].map((el) => el['name']);
+	var history = CollectHistory(node_info['child_nodes'], parents)
 	history.sort((a, b) => b['in_focus'] != a['in_focus'] ? (b['in_focus'] - a['in_focus']) : (b['ts'] - a['ts']))
 
-	var history_table = document.getElementById('history');
-	var durationFormatter = new Intl.DurationFormat('en-US', { style: 'short' });
-
 	const now = new Date();
+	var tbl = document.getElementById('history');
+	tbl.tBodies[0].replaceChildren();  // clear
 	for (const hst_row of history) {
-		const row_dt = new Date(hst_row['ts']*1000);
-		let delta = now - row_dt;
-
-		if (hst_row['in_focus']) {
-			const delta_days = Math.floor(delta / 24*60*60*1000);
-			delta %= (24*60*60*1000);
-			const delta_hours = Math.floor(delta / 60*60*1000)
-			delta %= (60*60*1000);
-			const delta_minutes = Math.floor(delta / 60*1000)
-
-			let time_since = durationFormatter.format({
-				days: delta_days,
-				hours: delta_hours,
-				minutes: delta_minutes
-			});
-			console.log([row_dt, time_since]);
-		}
-
-		const new_row = history_table.insertRow(-1);
-		new_row.insertCell(0).textContent = (new Date(hst_row['ts']*1000)).toISOString() + "\n" + hst_row['status'];
-		new_row.insertCell(1).textContent = hst_row['node_name'];
-		new_row.insertCell(2).textContent = hst_row['details'];
+		const new_row = tbl.tBodies[0].insertRow(-1);
+		const ts_cell = new_row.insertCell(0);
+		const name_cell = new_row.insertCell(1);
+		const details_cell = new_row.insertCell(2);
 
 		mm_control.SetupAttention(new_row, hst_row['status']);
+		var ts_string = (new Date(hst_row['ts']*1000)).toISOString().replace('T', ' ').replace(/.\d{3}Z/, ' UTC')
+
+		const row_dt = new Date(hst_row['ts']*1000);
+		if (hst_row['in_focus']) {
+			new_row.classList.add('in_focus');
+
+			var duration = GetDurationBetweenDates(row_dt, now);
+			ts_cell.textContent = ts_string + "\n" + duration;
+		}
+		else
+		{
+			ts_cell.textContent = ts_string;
+		}
+
+		const link = document.createElement('A');
+		link.href = '/' + (hst_row['node_parents'] || []).join('/');
+		link.title = (hst_row['node_parents'] || []).join(' → ')
+					 + (hst_row['metric_node'] ? `\n[${hst_row['metric_node']}]` : '');
+		link.textContent = hst_row['node_name'];
+		name_cell.appendChild(link);
+
+		var details = hst_row['details'];
+		if (details.indexOf("\n") < 0)
+			details = details.trim();
+		details_cell.textContent = details;
 	}
 }
 
@@ -191,6 +214,36 @@ async function MakePageByPathname(node_info) {
 
 	// output history table
 	FillHistoryTable(node_info)
+	document.getElementById('history-resizer').addEventListener('click', function(e) {
+		var box = e.target.closest('.history_box');
+		box.classList.toggle('fullsize');
+	});
+	document.getElementById('history-filter').addEventListener('keyup', function(e) {
+		if (e.code == 'Escape' && e.target.value == '') {
+			var box = e.target.closest('.history_box');
+			box.classList.remove('fullsize');
+		}
+	});
+	document.getElementById('history-filter').addEventListener('input', function(e) {
+		var re = null;
+		if (e.target.value != '')
+		{
+			re = new RegExp(e.target.value, "i")
+			var box = e.target.closest('.history_box');
+			box.classList.add('fullsize');
+		}
+		var tbl = e.target.closest('TABLE');
+		rows_loop: for (var row of tbl.tBodies[0].rows) {
+			for (var cell of row.cells) {
+				if (!re || cell.textContent.match(re)) {
+					row.style.display = '';
+					continue rows_loop;
+				}
+			}
+
+			row.style.display = 'none';
+		}
+	});
 
 	// output graph
 	if (node_info.graph_file) {
@@ -212,7 +265,6 @@ async function MakePageByPathname(node_info) {
 		for (const k in nodes) {
 			if ('child_nodes' in nodes[k]) {
 				const el = mm_control.GetSvgNodeById(svg, k);
-				console.log(`${pathname}/${GetPreparedPathName(k)}`);
 				mm_control.SetupLink(el, `${pathname}/${GetPreparedPathName(k)}`);
 			}
 		}
@@ -222,16 +274,16 @@ async function MakePageByPathname(node_info) {
 	return svg;
 }
 
-async function LoadNodeInfo()
+async function LoadNodeInfo(pathname)
 {
-	const node_info_text = await LoadFile('/node_info' + window.location.pathname);
+	const node_info_text = await LoadFile('/node_info' + pathname);
 	return JSON.parse(node_info_text);
 }
 
 async function RefreshMetrics(svg, node_info=null)
 {
 	if (!node_info)
-		node_info = await LoadNodeInfo();
+		node_info = await LoadNodeInfo(window.location.pathname);
 
 	if (node_info['child_nodes'])
 	{
@@ -244,7 +296,7 @@ async function RefreshMetrics(svg, node_info=null)
 		}
 	}
 
-	window.setTimeout(()=>RefreshMetrics(svg), 5000);
+	return window.setTimeout(()=>RefreshMetrics(svg), 5000);
 }
 
 // window.addEventListener('popstate', async function(event) {
@@ -257,9 +309,29 @@ async function RefreshMetrics(svg, node_info=null)
 // });
 
 // 1. Initial draw on page load
-const node_info = await LoadNodeInfo();
-const svg = await MakePageByPathname(node_info);
-RefreshMetrics(svg, node_info);
+async function SetupPage(pathname) {
+	document.getElementById('loader').classList.add('loading');
+
+	var node_info = await LoadNodeInfo(pathname);
+	var svg = await MakePageByPathname(node_info);
+
+	if (svg.parentNode['myRefreshTimer'])
+		window.clearTimeout(svg.parentNode['myRefreshTimer']);
+	var refresh_timer = RefreshMetrics(svg, node_info);
+	svg.parentNode['myRefreshTimer'] = refresh_timer;
+
+	document.getElementById('loader').classList.remove('loading');
+}
+
+navigation.addEventListener("navigate", async (e) => {
+	if (!e.canIntercept)
+		return true;
+	e.intercept();  // do not load new page but change address bar
+
+	var target_url = new URL(e.destination.url);
+	await SetupPage(target_url.pathname);
+});
+await SetupPage(window.location.pathname);
 
 /*
 var el = mm_control.GetSvgNodeById(svg, 'test1')

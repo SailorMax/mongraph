@@ -57,8 +57,10 @@ def GetStatusByValue(value, node_config, config):
             values = sorted(value, key=lambda item: float(item[1]), reverse=(levels_config['direction'] != 'down'))
             value = values[0][1]
             details = "\n".join([f"{GetUserFriendlyValue(item[1], levels_config)}  {item[0]}" for item in values])
+            if len(values) == 1:
+                details = details.strip()
         else:
-            details = GetUserFriendlyValue(value, levels_config)
+            details = GetUserFriendlyValue(value, levels_config).strip()
 
         try:
             value = float(value)
@@ -90,7 +92,7 @@ async def RefreshProviderMetrics(config):
         match provider_data['type']:
             case 'prometeus':
                 for metric_name, metric_data in provider_data['metrics'].items():
-
+                    # load old metrics
                     db_key = f"providers / {provider_data['type']} / {metric_name}"
                     item_metrics = await db.GetValueByKey(db_key)
                     if item_metrics is None:
@@ -101,6 +103,7 @@ async def RefreshProviderMetrics(config):
                     else:
                         item_metrics = json.loads(item_metrics)
 
+                    # refresh
                     update_interval = metric_data['update_interval'] if 'update_interval' in metric_data else config['defaults']['update_interval']
                     if item_metrics['last_check_ts'] + update_interval < now:
                         try:
@@ -189,27 +192,13 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
                 path, query = cmd.split('?', 2)
                 # parsed_query = parse_qs(query)
 
-                provider_name, metric_name = path.split('/', 2)
-                # metric_filter = parsed_query['filter'][0]
-                # print([provider_name, metric_name, node_name, metric_filter])
-
                 if 'levels' not in node_config:
+                    provider_name, metric_name = path.split('/', 2)
                     provider_metric_config = config['providers'][provider_name]['metrics'][metric_name]
                     if 'levels' in provider_metric_config:
                         node_config['levels'] = provider_metric_config['levels']
 
-                # current_provider_metrics = provider_metrics[provider_name]
-                # metrics_obj = current_provider_metrics[metric_name]
-
-                # TODO: get provider metrics and pass it to GetStatusByValue()
-
                 values = []
-                # for metric_row in metrics_obj['metrics']:
-                #     try:
-                #         if simple_eval(metric_filter, names=metric_row['metric']):
-                #             values.append(metric_row['value'][1])
-                #     except Exception as e:
-                #         print(e)
                 for metric_row in node_config['metric_data']:
                     values.append(metric_row['value'])
 

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 	<title>Mongraph</title>
+	<link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
 	<link rel="stylesheet" href="/static/app.css" />
 	<link rel="stylesheet" href="/static/mermaid.css" />
 	<script src="/static/mermaid.min.js"></script>
@@ -10,21 +11,34 @@
 
 <body>
 	<header>
-		<h1><!-- Project name --></h1>
+		<div class="centered">
+			<span id="loader"></span>
+			<h1><!-- Project name --></h1>
 
-		<div class="history_box">
-			<table id="history" aria-label="History" class="history">
-			<tr>
-				<th>Timestamp</th>
-				<th>Node</th>
-				<th>Message</th>
-			</tr>
-			</table>
+			<div class="history_box">
+				<table id="history" aria-label="History" class="history">
+				<thead>
+				<tr>
+					<th>Timestamp</th>
+					<th>
+						Node
+						<input id="history-filter" type="text" placeholder="filter the list" />
+					</th>
+					<th>
+						Message
+						<button id='history-resizer'>↕</button>
+					</th>
+				</tr>
+				</thead>
+				<tbody>
+				</tbody>
+				</table>
+			</div>
+
+			<nav id="breadcrumb" aria-label="Breadcrumb" class="breadcrumb">
+				<ol></ol>
+			</nav>
 		</div>
-
-		<nav id="breadcrumb" aria-label="Breadcrumb" class="breadcrumb">
-			<ol></ol>
-		</nav>
 	</header>
 
 	<pre id="graph" aria-label="Graph" class="mermaid"></pre>

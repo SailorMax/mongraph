@@ -1,24 +1,34 @@
+:root {
+  --primary-color: #3498db;
+  --main-padding: 16px;
+  --font-stack: 'Helvetica', sans-serif;
+}
+
 BODY {
   background-color: #646b79;
   margin: 0;
 }
 
 @keyframes fade-blink {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 @keyframes slightly-fade-blink {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes shadow_rolling {
+    0% { box-shadow: 0 0 var(--color-2),0 0 var(--color-2),0 0 var(--color-2),0 0 var(--color-2) }
+    12% { box-shadow: calc(100 * var(--size)) 0 #fff,0 0 var(--color-2),0 0 var(--color-2),0 0 var(--color-2) }
+    25% { box-shadow: calc(110 * var(--size)) 0 #fff,calc(100 * var(--size)) 0 #fff,0 0 var(--color-2),0 0 var(--color-2) }
+    36% { box-shadow: calc(120 * var(--size)) 0 #fff,calc(110 * var(--size)) 0 #fff,calc(100 * var(--size)) 0 #fff,0 0 var(--color-2) }
+    50% { box-shadow: calc(130 * var(--size)) 0 #fff,calc(120 * var(--size)) 0 #fff,calc(110 * var(--size)) 0 #fff,calc(100 * var(--size)) 0 #fff }
+    62% { box-shadow: calc(200 * var(--size)) 0 var(--color-2),calc(130 * var(--size)) 0 #fff,calc(120 * var(--size)) 0 #fff,calc(110 * var(--size)) 0 #fff }
+    75% { box-shadow: calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2),calc(130 * var(--size)) 0 #fff,calc(120 * var(--size)) 0 #fff }
+    87% { box-shadow: calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2),calc(130 * var(--size)) 0 #fff }
+    to { box-shadow: calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2),calc(200 * var(--size)) 0 var(--color-2) }
 }
 
 /* https://picocss.com/docs/colors */
@@ -29,36 +39,131 @@ HEADER {
   animation: slightly-fade-blink 30s linear infinite;
 }
 
+.centered {
+  width: 60%;
+  margin: 10px auto;
+}
+
 H1, .history_box, .breadcrumb {
-  width: 50%;
   margin: 10px auto;
   color: #fff;
   font-family: monospace;
 }
 
-.history_box {
-  max-height: 100px;
-  overflow: auto;
+#loader {
+    --color-1: #fff;
+    --color-2: rgba(255, 255, 255, 0);
+    --size: 1px;
+
+    display: none;
+    float: right;
+    margin: 10px 100px 0 0;
+
+    width: calc(10 * var(--size));
+    height: calc(10 * var(--size));
+    border-radius: 50%;
+    position: relative;
+    color: var(--color-1);
+    left: calc(-100 * var(--size));
+    box-sizing: border-box;
+    animation: shadow_rolling 2s linear infinite
 }
 
-.history th:nth-child(1) { width: 200px; }
-.history th:nth-child(2) { width: 300px; }
+#loader.loading {
+  display: block;
+}
+
+.history_box {
+  position: relative;
+  max-height: 100px;
+  overflow-y: auto;
+  border-right: 1px solid;
+  border-top: 1px solid;
+  border-bottom: 1px solid;
+  border-color: hsl(220, 19%, 40%);
+}
+
+.history_box.fullsize {
+  max-height: fit-content;
+}
+
+#history-resizer {
+  float: right;
+  vertical-align: top;
+  padding-top: 0;
+}
+
+#history-filter {
+  float: right;
+  height: 15px;
+}
+
+#history-filter:not(:placeholder-shown) {
+  background-color: #fff8ba;
+}
+
+.history {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.history thead {
+  position: sticky;
+  top: 0;
+  background-color: #455068;
+  z-index: 1;
+}
+
+.history th, .history td {
+  border-bottom: 1px solid;
+  border-left: 1px solid;
+  border-color: rgb(104, 120, 153);
+  padding: 5px;
+  line-height: 20px;
+}
+
+.history th:nth-child(1) { width: 180px; }
+.history th:nth-child(3) { width: 350px; }
 
 .history tr.warning {
-    background-color: #ffff55 !important;
+    background-color: #d5d581 !important;
     color: black;
 }
 
-.history tr:nth-child(1).warning {
+.history tr.warning.in_focus {
     animation: fade-blink 1.5s linear infinite;
+    background-color: #ffff55 !important;
 }
 
 .history tr.danger {
+    background-color: #d58181 !important;
+    color: black;
+}
+
+.history tr.danger.in_focus {
+    animation: fade-blink 1s linear infinite;
     background-color: #ff5555 !important;
 }
 
-.history tr:nth-child(1).danger {
-    animation: fade-blink 1s linear infinite;
+.history A {
+    color: #fff;
+    text-decoration: none;
+}
+
+.history A:hover {
+    text-decoration: underline;
+}
+
+
+.history tr.warning A,
+.history tr.danger A {
+    color: black;
+}
+
+.history tr td:nth-child(1),
+.history tr td:nth-child(3) {
+  white-space: pre;
 }
 
 

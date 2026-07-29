@@ -84,11 +84,16 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                                                 node_metric_name = f"{node_name}--{provider_metric_name}"
                                                 if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
                                                     node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
+                                                    if 'ip' in metric_row['metric']:
+                                                        metric_node = metric_row['metric']['ip']
+                                                    else:
+                                                        metric_node = metric_row['metric']['instance']
                                                     virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
                                                         'virtual': True,
                                                         'label': provider_metric_name,
                                                         'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
-                                                        'metric_data': []
+                                                        'metric_data': [],
+                                                        'metric_node': metric_node
                                                     }
                                                 virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
                                         except NameNotDefined as e:

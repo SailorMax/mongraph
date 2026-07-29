@@ -41,13 +41,14 @@ async def get_static(file_path: str, request: Request):
     else:
         request_path = str(request.url.path)
         file_path_pos = request_path.find(file_path)
-        default_dir = (request_path[1:file_path_pos] if file_path_pos >= 0 else request_path[1:]) + '/'
+        default_dir = (request_path[1:file_path_pos] if file_path_pos >= 0 else request_path[1:])
 
     # check access
     allow_extensions_list = [
         '.html',
         '.css',
         '.js',
+        '.ico',
         '.mermaid'
     ]
     if Path(file_path).suffix not in allow_extensions_list:
@@ -60,7 +61,7 @@ async def get_static(file_path: str, request: Request):
 
     # read file
     if Path(prepared_file_path).is_file():
-        content = Path(prepared_file_path).read_text()
+        content = Path(prepared_file_path).read_bytes()
         return Response(content=content, media_type=mimetypes.guess_type(file_path)[0])
 
     return Response(content='Not found', status_code=404)

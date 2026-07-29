@@ -101,7 +101,8 @@ async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_con
         sub_child_nodes = await CollectNodesMetricSubTree(child_node_config, provider_metrics, providers_config)
         child_nodes[child_name] = {
             'label': child_node_config['label'] if 'label' in child_node_config else child_name,
-            'metric': await GetMetricOfNode(child_name, child_node_config, sub_child_nodes)
+            'metric': await GetMetricOfNode(child_name, child_node_config, sub_child_nodes),
+            'metric_node': child_node_config['metric_node'] if 'metric_node' in child_node_config else None
         }
         if sub_child_nodes:
             child_nodes[child_name]['child_nodes'] = sub_child_nodes

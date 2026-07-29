@@ -50,6 +50,17 @@ H1, .history_box, .breadcrumb {
   font-family: monospace;
 }
 
+.refresh_status {
+  float: right;
+  color: #fff;
+  font-family: monospace;
+}
+
+#refresh_control {
+  display: block;
+  margin-top: 5px;
+}
+
 #loader {
     --color-1: #fff;
     --color-2: rgba(255, 255, 255, 0);

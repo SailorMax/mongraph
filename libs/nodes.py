@@ -147,6 +147,8 @@ async def GetNodeInfo(node_path: str):
     # collect info
     node_info = {
         'project_name': config['label'],
+        'ui_update_interval': config['ui_update_interval'],
+
         'graph_file': node_config['graph_file'] if 'graph_file' in node_config else '',
         'node_deep': node_deep,
         'child_nodes': node_config['child_nodes'] if 'child_nodes' in node_config else []

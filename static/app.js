@@ -144,6 +144,49 @@ function GetDurationBetweenDates(dt1, dt2) {
 	});
 }
 
+function FilterHistoryTable(filter_value) {
+	var history_filter = document.getElementById('history-filter');
+
+	if (filter_value) {
+		history_filter.value = filter_value;
+		history_filter.focus();
+	}
+
+	history_filter.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function GetReadableDatetime(dt) {
+	if (!dt)
+		dt = new Date();
+	else if (typeof dt === "number")
+		dt = new Date(dt*1000);
+	return dt.toISOString().replace('T', ' ').replace(/.\d{3}Z/, ' UTC')
+}
+
+// dialog
+document.querySelector('#msgRowDetails').addEventListener('close', () => {
+	ContinueRefreshTimer();
+});
+document.querySelector('#msgRowDetails #msgRowDetailsClose').addEventListener('click', () => {
+	document.querySelector("#msgRowDetails").close();
+});
+
+function ShowRowDetailsDialog(hst_row, node_details) {
+	StopRefreshTimer();
+	var msgBox = document.querySelector("#msgRowDetails");
+	msgBox.querySelector('#msgNode').innerText = hst_row['node_name'];
+	msgBox.querySelector('#msgNodeDetails').innerText = node_details;
+	msgBox.querySelector('#msgStatusDate').innerText = GetReadableDatetime(hst_row['ts']);
+	msgBox.querySelector('#msgStatus').innerText = hst_row['status'];
+	msgBox.querySelector('#msgStatusDetails').innerText = hst_row['details'];
+	msgBox.showModal();
+}
+
+function CloseRowDetailsDialog() {
+	document.querySelector("#msgRowDetails").close();
+}
+//
+
 function FillHistoryTable(node_info) {
 	var parents = node_info['node_deep'].map((el) => el['name']);
 	var history = CollectHistory(node_info['child_nodes'], parents)
@@ -159,24 +202,42 @@ function FillHistoryTable(node_info) {
 		const details_cell = new_row.insertCell(2);
 
 		mm_control.SetupAttention(new_row, hst_row['status']);
-		var ts_string = (new Date(hst_row['ts']*1000)).toISOString().replace('T', ' ').replace(/.\d{3}Z/, ' UTC')
+		const ts_string = GetReadableDatetime(hst_row['ts']);
 
 		const row_dt = new Date(hst_row['ts']*1000);
 		if (hst_row['in_focus']) {
 			new_row.classList.add('in_focus');
 
 			var duration = GetDurationBetweenDates(row_dt, now);
-			ts_cell.textContent = ts_string + "\n" + duration;
+			ts_cell.textContent = ts_string + "\nΔt: " + duration;
 		}
 		else
-		{
 			ts_cell.textContent = ts_string;
+
+		const node_details = (hst_row['node_parents'] || []).join(' → ')
+						 	+ (hst_row['metric_node'] ? `\n[${hst_row['metric_node']}]` : '')
+
+		const filter_btn = document.createElement('BUTTON');
+		filter_btn.innerText = '⧩';
+		filter_btn.title = 'filter by node name';
+		filter_btn.addEventListener('click', (e) => {
+			FilterHistoryTable(e.target.closest('TD').querySelector('A').innerText);
+		});
+		name_cell.appendChild(filter_btn);
+
+		if (node_details != '') {
+			const info_btn = document.createElement('BUTTON');
+			info_btn.innerText = 'ℹ';
+			info_btn.title = 'show detailed information';
+			info_btn.addEventListener('click', (e) => {
+				ShowRowDetailsDialog(hst_row, node_details);
+			});
+			name_cell.appendChild(info_btn);
 		}
 
 		const link = document.createElement('A');
 		link.href = '/' + (hst_row['node_parents'] || []).join('/');
-		link.title = (hst_row['node_parents'] || []).join(' → ')
-					 + (hst_row['metric_node'] ? `\n[${hst_row['metric_node']}]` : '');
+		link.title = node_details;
 		link.textContent = hst_row['node_name'];
 		name_cell.appendChild(link);
 
@@ -185,6 +246,8 @@ function FillHistoryTable(node_info) {
 			details = details.trim();
 		details_cell.textContent = details;
 	}
+
+	FilterHistoryTable();
 }
 
 function GetPreparedPathName(el_name) {
@@ -197,24 +260,24 @@ async function MakePageByPathname(node_info) {
 	// project name
 	document.getElementsByTagName('H1')[0].innerText = node_info.project_name;
 
-	// output Broadcrumb
-	var pathname = []
-	var breadcrumb = [{'name': '', 'label': 'Root'}];
-	for (const path_el of node_info.node_deep) {
-		breadcrumb.push(path_el);
-		pathname.push(GetPreparedPathName(path_el['name']))
-	}
-	MakeBreadcrumbUI(breadcrumb);
-	if (pathname.length) {
-		pathname.unshift('');	// slash before path
-		pathname = pathname.join('/');
-	} else {
-		pathname = '';
-	}
+	// timer
+	document.querySelector('#refresh_control BUTTON').addEventListener('click', async function(e) {
+		if (StopRefreshTimer()) {
+			this.innerText = "Refresh";
+			document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'none';
+			document.querySelector('#refresh_control SPAN').innerText = 'Last update: ' + GetReadableDatetime();
+			return;
+		}
+
+		await RefreshMetrics();
+		this.innerText = "Stop";
+		document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'inline';
+	});
 
 	// prepare history table
 	document.getElementById('history-resizer').addEventListener('click', function(e) {
 		var box = e.target.closest('.history_box');
+		box.style.height = '';
 		box.classList.toggle('fullsize');
 	});
 	document.getElementById('history-filter').addEventListener('keyup', function(e) {
@@ -243,6 +306,31 @@ async function MakePageByPathname(node_info) {
 			row.style.display = 'none';
 		}
 	});
+
+	var history_box = document.querySelector('.history_box');
+	var history_box_height = localStorage.getItem('history_box_height');
+	history_box.style.height = (history_box_height ? `${history_box_height}px` : '');
+	var resizeObserver = new ResizeObserver((entries) => {
+		if (!entries[0].target.classList.contains('fullsize')) {
+			localStorage.setItem('history_box_height', entries[0].contentRect.height);
+		}
+	});
+	resizeObserver.observe(history_box);
+
+	// output Broadcrumb
+	var pathname = []
+	var breadcrumb = [{'name': '', 'label': 'Root'}];
+	for (const path_el of node_info.node_deep) {
+		breadcrumb.push(path_el);
+		pathname.push(GetPreparedPathName(path_el['name']))
+	}
+	MakeBreadcrumbUI(breadcrumb);
+	if (pathname.length) {
+		pathname.unshift('');	// slash before path
+		pathname = pathname.join('/');
+	} else {
+		pathname = '';
+	}
 
 	// output graph
 	if (node_info.graph_file) {
@@ -279,8 +367,59 @@ async function LoadNodeInfo(pathname)
 	return JSON.parse(node_info_text);
 }
 
-async function RefreshMetrics(svg, node_info=null)
+// timer
+function StopRefreshTimer()
 {
+	console.trace('- stop interval');
+	var timer = document.getElementById('timer');
+	if (timer['myInterval']) {
+		window.clearInterval(timer['myInterval']);
+		delete timer['myInterval'];
+		return true;
+	}
+	return false;
+}
+
+function ShowLoadingStatus()
+{
+	StopRefreshTimer();
+	document.getElementById('refresh_control').style.display = "none";
+	document.getElementById('loader').style.display = "block";
+}
+
+async function RefreshTimerTick()
+{
+	var timer = document.getElementById('timer');
+	var counter = parseInt(timer.innerText, 10);
+	timer.innerText = (--counter).toString();
+	if (counter == 0)
+		await RefreshMetrics();
+}
+
+function ContinueRefreshTimer()
+{
+	console.trace('+ start interval');
+	var timer = document.getElementById('timer');
+	timer['myInterval'] = window.setInterval(RefreshTimerTick, 1000);
+}
+
+function StartRefreshTimer(node_info)
+{
+	var timer = document.getElementById('timer');
+	document.getElementById('loader').style.display = "none";
+	timer.innerText = node_info['ui_update_interval'] || '30';	// seconds
+	document.getElementById('refresh_control').style.display = "block";
+	ContinueRefreshTimer();
+}
+//
+
+async function RefreshMetrics(node_info=null)
+{
+	var called_by_timer = !node_info;
+	if (called_by_timer)
+		ShowLoadingStatus();
+
+	// data
 	if (!node_info)
 		node_info = await LoadNodeInfo(window.location.pathname);
 
@@ -290,6 +429,7 @@ async function RefreshMetrics(svg, node_info=null)
 		FillHistoryTable(node_info);
 
 		// graph
+		var svg = document.querySelector('#graph SVG');
 		for (const [el_name, node] of Object.entries(node_info['child_nodes'])) {
 			const sv_node = mm_control.GetSvgNodeById(svg, el_name);
 			if (sv_node) {
@@ -299,33 +439,23 @@ async function RefreshMetrics(svg, node_info=null)
 		}
 	}
 
-	return window.setTimeout(()=>RefreshMetrics(svg), 5000);
+	if (called_by_timer)
+		StartRefreshTimer(node_info);
 }
 
-// window.addEventListener('popstate', async function(event) {
-//     // Check if state data exists
-// 	console.log(event.state);
-// 	console.log(window.location.pathname);
-//     if (event.state) {
-// 		await MakePageByPathname(window.location.pathname, config);
-//     }
-// });
 
-// 1. Initial draw on page load
+// Initial draw on page load
 async function SetupPage(pathname) {
-	document.getElementById('loader').classList.add('loading');
+	ShowLoadingStatus();
 
 	var node_info = await LoadNodeInfo(pathname);
 	var svg = await MakePageByPathname(node_info);
 
-	if (svg.parentNode['myRefreshTimer'])
-		window.clearTimeout(svg.parentNode['myRefreshTimer']);
-	var refresh_timer = RefreshMetrics(svg, node_info);
-	svg.parentNode['myRefreshTimer'] = refresh_timer;
-
-	document.getElementById('loader').classList.remove('loading');
+	RefreshMetrics(node_info);
+	StartRefreshTimer(node_info);
 }
 
+// Handle navigation
 navigation.addEventListener("navigate", async (e) => {
 	if (!e.canIntercept)
 		return true;
@@ -334,39 +464,6 @@ navigation.addEventListener("navigate", async (e) => {
 	var target_url = new URL(e.destination.url);
 	await SetupPage(target_url.pathname);
 });
+
+// Init
 await SetupPage(window.location.pathname);
-
-/*
-var el = mm_control.GetSvgNodeById(svg, 'test1')
-mm_control.SetupAttention(el, 'warning');
-var el = mm_control.GetSvgNodeById(svg, 'test2')
-mm_control.SetupAttention(el, 'danger', "something wrong!");
-var el = mm_control.GetSvgNodeById(svg, 'test3')
-mm_control.SetupAttention(el, 'normal');
-
-
-var els = mm_control.GetSvgConnectionById(svg, 'L_test1_test2')
-mm_control.SetupAttention(els, 'warning');
-var els = mm_control.GetSvgConnectionById(svg, 'L_test2_test3')
-mm_control.SetupAttention(els, 'danger', 'something wrong!');
-//mm_control.SetupAttention(els);
-*/
-/*
-console.log(el);
-var box = el.querySelector('rect.label-container')
-box.style.fill = "red";
-var label = el.querySelector('span.nodeLabel')
-label.setAttribute('title', 'zzzzzzzzzz');
-*/
-/*
-// 2. Change text dynamically and re-render
-function updateBlockText() {
-	const updatedGraph = `
-	flowchart TD
-		A[Brand New Text Here] --> B(Step 2)
-	`;
-
-	// Re-run the draw function to update the block text in the DOM
-	drawDiagram(updatedGraph);
-}
-*/

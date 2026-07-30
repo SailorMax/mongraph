@@ -71,6 +71,14 @@
     ry: 5px;
 }
 
-.mermaid .link {
+.mermaid .node {
+  cursor: default;
+}
+
+.mermaid .node.link {
   cursor: pointer;
+}
+
+.mermaid .node:hover .label-container {
+  filter: brightness(2.0);
 }

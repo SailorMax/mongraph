@@ -13,10 +13,10 @@
 	<header>
 		<div class="centered">
 			<div class="refresh_status">
-				<div id="refresh_control"><span id="timer">5</span> seconds until refresh <button>stop</button></div>
+				<div id="refresh_control"><span id="timer">5</span> <span id="label">second(s) until refresh</span> <button>stop</button></div>
 				<span id="loader"></span>
 			</div>
-			<h1><!-- Project name --></h1>
+			<h1>&nbsp;<!-- space to do not change the page width while loading. After page loaded here is Project name --></h1>
 
 			<div class="history_box">
 				<table id="history" aria-label="History" class="history">
@@ -25,7 +25,7 @@
 					<th>Timestamp</th>
 					<th>
 						Node
-						<input id="history-filter" type="text" placeholder="filter the list" />
+						<input id="history-filter" type="search" spellcheck="false" autocomplete="off" placeholder="filter the list" />
 					</th>
 					<th>
 						Message
@@ -43,7 +43,19 @@
 			</nav>
 		</div>
 	</header>
+	<dialog id="msgRowDetails" closedby="any">
+		<table>
+		<tr><th>Node</th><td id='msgNode'></td></tr>
+		<tr><th>Details</th><td id='msgNodeDetails'></td></tr>
+		<tr><th>Timestamp</th><td id='msgStatusDate'></td></tr>
+		<tr><th>Status</th><td id='msgStatus'></td></tr>
+		<tr><th>Message</th><td id='msgStatusDetails'></td></tr>
+		</table>
+		<button id="msgRowDetailsClose">Close</button>
+	</dialog>
 
 	<pre id="graph" aria-label="Graph" class="mermaid"></pre>
+
+	<footer>Based on <a href="https://github.com/SailorMax/mongraph">mongraph</a></footer>
 </body>
 </html>

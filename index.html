@@ -42,20 +42,22 @@
 				<ol></ol>
 			</nav>
 		</div>
+		<dialog id="msgRowDetails" closedby="any">
+			<table>
+			<tr><th>Node</th><td id='msgNode'></td></tr>
+			<tr><th>Details</th><td id='msgNodeDetails'></td></tr>
+			<tr><th>Timestamp</th><td id='msgStatusDate'></td></tr>
+			<tr><th>Status</th><td id='msgStatus'></td></tr>
+			<tr><th>Message</th><td id='msgStatusDetails'></td></tr>
+			</table>
+			<button id="msgRowDetailsClose">Close</button>
+		</dialog>
 	</header>
-	<dialog id="msgRowDetails" closedby="any">
-		<table>
-		<tr><th>Node</th><td id='msgNode'></td></tr>
-		<tr><th>Details</th><td id='msgNodeDetails'></td></tr>
-		<tr><th>Timestamp</th><td id='msgStatusDate'></td></tr>
-		<tr><th>Status</th><td id='msgStatus'></td></tr>
-		<tr><th>Message</th><td id='msgStatusDetails'></td></tr>
-		</table>
-		<button id="msgRowDetailsClose">Close</button>
-	</dialog>
 
-	<pre id="graph" aria-label="Graph" class="mermaid"></pre>
+	<main>
+		<pre id="graph" aria-label="Graph" class="mermaid"></pre>
+	</main>
 
-	<footer>Based on <a href="https://github.com/SailorMax/mongraph">mongraph</a></footer>
+	<footer>Based on <a href="https://github.com/SailorMax/mongraph" target="_blank">Mongraph</a></footer>
 </body>
 </html>

@@ -5,8 +5,16 @@
 }
 
 BODY {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+
   background-color: #646b79;
   margin: 0;
+}
+
+main {
+  flex-grow: 1; /* take all space of screen */
 }
 
 @keyframes fade-blink {
@@ -80,6 +88,15 @@ H1, .history_box, .breadcrumb {
   animation: shadow_rolling 2s linear infinite
 }
 
+#loader.error::after {
+  color: #f00;
+  display: block;
+  width: 250px;
+  margin-top: 10px;
+  text-align: center;
+  content: "network error!";
+}
+
 .history_box {
   position: relative;
   height: 200px;
@@ -135,6 +152,9 @@ H1, .history_box, .breadcrumb {
 
 .history th:nth-child(1) { width: 180px; }
 .history th:nth-child(3) { width: 350px; }
+
+.history tr.is_actual {
+}
 
 .history tr.warning {
     background-color: #d5d581 !important;
@@ -244,4 +264,19 @@ dialog button {
 
 .mermaid {
   text-align: center;
+}
+
+footer {
+  padding: 5px;
+  color: rgb(176, 185, 208);
+  text-align: center;
+}
+
+footer a {
+  color: rgb(176, 185, 208);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
 }

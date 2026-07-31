@@ -151,18 +151,20 @@ def AppendLogFreshMetrics(history, metrics):
     if len(history) > 0:
         history.sort(key=lambda x: x['ts'], reverse=True)
         if history[0]['status'] == metrics['status']:
-            return history
+            # actual values do not put in history to do not duplicate statuses + to see real history values between statuses
+            return history, False
 
-    history.append(metrics)
-    if len(history) > 9:
+    history.insert(0, metrics)  # add to begin of list
+    if len(history) > 9:  # history limit
         history = history[0:9]
-    return history
+    return history, True
 
 
 async def StoreNodeStatus(node_name, status, details, node_metrics=None):
     if node_metrics is None:
         node_metrics = await GetStoredNodeMetrics(node_name)
 
+    # latest data separately to do not duplicate same status in history
     latest_metrics = {
         'ts': int(time.time()),
         'status': status,
@@ -170,11 +172,22 @@ async def StoreNodeStatus(node_name, status, details, node_metrics=None):
     }
 
     node_metrics.update(latest_metrics)
-    node_metrics['history'] = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
+    node_metrics['history'], appended = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
 
     # print('store:')
     # print([node_name, json.dumps(node_metrics)])
-    await db.SetValueByKey(node_name, json.dumps(node_metrics))
+    stored = await db.SetValueByKey(node_name, json.dumps(node_metrics))
+    return stored, appended
+
+
+def NotifyAboutNewStatus(node_name, status, details, config):
+    print('Notify about new status:')
+    print([node_name, status, details])
+    if 'notifications' in config:
+        delay = config.get('delay', 0)
+        recipients = config.get('recipients', [])
+        for recipient in recipients:
+            print(recipient)
 
 
 async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
@@ -209,6 +222,8 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
                 stdout, stderr = await proc.communicate()
                 if len(stderr) > 0:
                     value = stderr.decode('utf-8')
+                elif 'value_source' in node_config and node_config['value_source'] == 'exit-code':
+                    value = await proc.wait()
                 elif 'metric_mask_re' in node_config:
                     matches = re.finditer(rf"{node_config['metric_mask_re']}", stdout.decode('utf-8'), re.MULTILINE)
                     value = [(match.group('name'), match.group('value')) for match in matches]
@@ -235,7 +250,10 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
                 print(f"(!) Metric source '{source_type}' is unknown.")
 
         status, details = GetStatusByValue(value, node_config, config)
-        await StoreNodeStatus(node_name, status, details, node_metrics)
+        stored, appended = await StoreNodeStatus(node_name, status, details, node_metrics)
+        if appended:
+            # TODO: move it to separate function, because of delay parameter!
+            NotifyAboutNewStatus(node_name, status, details, config)
         # print(json.dumps(node_metrics, indent=2))
     return
 

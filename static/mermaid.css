@@ -82,3 +82,13 @@
 .mermaid .node:hover .label-container {
   filter: brightness(2.0);
 }
+
+
+.mermaid .cluster rect {
+  fill: #737b8c !important;
+  stroke: #505662 !important;
+}
+
+.mermaid .cluster-label .nodeLabel {
+  color: #dfe3ec !important;
+}

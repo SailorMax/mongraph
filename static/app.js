@@ -27,21 +27,30 @@ async function drawDiagram(graphDefinition)
 		return outputBox.childNodes[0];
 	} catch (error) {
 		console.error("Mermaid rendering failed:" + error);
-		console.log(graphDefinition)
+		console.log(graphDefinition);
 	}
 }
 
-async function LoadFile(filename) {
-	try {
-		const response = await fetch(filename);
-		if (!response.ok)
-			throw new Error(`Error status: ${response.status}`);
-		return await response.text();
+var sleepAsync = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-	} catch (error) {
-		console.error(`Failed to load graph ${filename}:`, error);
+async function LoadFile(filename) {
+	while (true)
+	{
+		try {
+			const response = await fetch(filename);
+			if (!response.ok)
+				throw new Error(`Error status: ${response.status}`);
+			var response_text = await response.text();
+			document.querySelector('#loader').classList.remove('error');
+			return response_text;
+
+		} catch (error) {
+			console.error(`Failed to load graph ${filename}:`, error);
+			document.querySelector('#loader').classList.add('error');
+		}
+
+		await sleepAsync(1000);
 	}
-	return null
 }
 
 async function ShowGraph(graph_text) {
@@ -108,14 +117,20 @@ function CollectHistory(child_nodes, parents=[]) {
 	for (const node_name in child_nodes) {
 		const child_node_metric = child_nodes[node_name]['metric'];
 		if (child_node_metric && child_node_metric['history']) {
+			// history data
 			let row_nr = 0;
 			for (const hst_row of child_node_metric['history']) {
+				let in_focus = !row_nr && attention_statuses.indexOf(hst_row['status']) >= 0
 				const history_item = {
 					node_parents: parents,
 					node_name: node_name,
 					metric_node: child_nodes[node_name]['metric_node'],
-					in_focus: !row_nr && attention_statuses.indexOf(hst_row['status']) >= 0,
-					...hst_row
+					in_focus: in_focus,
+					is_actual: false,
+
+					ts: hst_row['ts'],
+					status: hst_row['status'],
+					details: in_focus ? child_node_metric['details'] : hst_row['details'],
 				};
 				history.push(history_item);
 				row_nr++;
@@ -205,6 +220,8 @@ function FillHistoryTable(node_info) {
 		const ts_string = GetReadableDatetime(hst_row['ts']);
 
 		const row_dt = new Date(hst_row['ts']*1000);
+		if (hst_row['is_actual'])
+			new_row.classList.add('is_actual');
 		if (hst_row['in_focus']) {
 			new_row.classList.add('in_focus');
 
@@ -260,53 +277,7 @@ async function MakePageByPathname(node_info) {
 	// project name
 	document.getElementsByTagName('H1')[0].innerText = node_info.project_name;
 
-	// timer
-	document.querySelector('#refresh_control BUTTON').addEventListener('click', async function(e) {
-		if (StopRefreshTimer()) {
-			this.innerText = "Refresh";
-			document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'none';
-			document.querySelector('#refresh_control SPAN').innerText = 'Last update: ' + GetReadableDatetime();
-			return;
-		}
-
-		await RefreshMetrics();
-		this.innerText = "Stop";
-		document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'inline';
-	});
-
 	// prepare history table
-	document.getElementById('history-resizer').addEventListener('click', function(e) {
-		var box = e.target.closest('.history_box');
-		box.style.height = '';
-		box.classList.toggle('fullsize');
-	});
-	document.getElementById('history-filter').addEventListener('keyup', function(e) {
-		if (e.code == 'Escape' && e.target.value == '') {
-			var box = e.target.closest('.history_box');
-			box.classList.remove('fullsize');
-		}
-	});
-	document.getElementById('history-filter').addEventListener('input', function(e) {
-		var re = null;
-		if (e.target.value != '')
-		{
-			re = new RegExp(e.target.value, "i")
-			var box = e.target.closest('.history_box');
-			box.classList.add('fullsize');
-		}
-		var tbl = e.target.closest('TABLE');
-		rows_loop: for (var row of tbl.tBodies[0].rows) {
-			for (var cell of row.cells) {
-				if (!re || cell.textContent.match(re)) {
-					row.style.display = '';
-					continue rows_loop;
-				}
-			}
-
-			row.style.display = 'none';
-		}
-	});
-
 	var history_box = document.querySelector('.history_box');
 	var history_box_height = localStorage.getItem('history_box_height');
 	history_box.style.height = (history_box_height ? `${history_box_height}px` : '');
@@ -370,7 +341,6 @@ async function LoadNodeInfo(pathname)
 // timer
 function StopRefreshTimer()
 {
-	console.trace('- stop interval');
 	var timer = document.getElementById('timer');
 	if (timer['myInterval']) {
 		window.clearInterval(timer['myInterval']);
@@ -398,7 +368,6 @@ async function RefreshTimerTick()
 
 function ContinueRefreshTimer()
 {
-	console.trace('+ start interval');
 	var timer = document.getElementById('timer');
 	timer['myInterval'] = window.setInterval(RefreshTimerTick, 1000);
 }
@@ -423,7 +392,7 @@ async function RefreshMetrics(node_info=null)
 	if (!node_info)
 		node_info = await LoadNodeInfo(window.location.pathname);
 
-	if (node_info['child_nodes'])
+	if (node_info && node_info['child_nodes'])
 	{
 		// table
 		FillHistoryTable(node_info);
@@ -443,27 +412,80 @@ async function RefreshMetrics(node_info=null)
 		StartRefreshTimer(node_info);
 }
 
+function InitEventHandlers()
+{
+	// Handle navigation
+	navigation.addEventListener("navigate", async (e) => {
+		if (!e.canIntercept)
+			return true;
+		e.intercept();  // do not load new page but change address bar
+
+		var target_url = new URL(e.destination.url);
+		await SetupPage(target_url.pathname);
+	});
+
+	// timer
+	document.querySelector('#refresh_control BUTTON').addEventListener('click', async function(e) {
+		if (StopRefreshTimer()) {
+			this.innerText = "Refresh";
+			document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'none';
+			document.querySelector('#refresh_control SPAN').innerText = 'Last update: ' + GetReadableDatetime();
+			return;
+		}
+
+		await RefreshMetrics();
+		this.innerText = "Stop";
+		document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'inline';
+	});
+
+	// prepare history table
+	document.getElementById('history-resizer').addEventListener('click', function(e) {
+		var box = e.target.closest('.history_box');
+		box.style.height = '';
+		box.classList.toggle('fullsize');
+	});
+	document.getElementById('history-filter').addEventListener('keyup', function(e) {
+		if (e.code == 'Escape' && e.target.value == '') {
+			var box = e.target.closest('.history_box');
+			box.classList.remove('fullsize');
+		}
+	});
+	document.getElementById('history-filter').addEventListener('input', function(e) {
+		var re = null;
+		if (e.target.value != '')
+		{
+			re = new RegExp(e.target.value, "i")
+			var box = e.target.closest('.history_box');
+			box.classList.add('fullsize');
+		}
+		var tbl = e.target.closest('TABLE');
+		rows_loop: for (var row of tbl.tBodies[0].rows) {
+			for (var cell of row.cells) {
+				if (!re || cell.textContent.match(re)) {
+					row.style.display = '';
+					continue rows_loop;
+				}
+			}
+
+			row.style.display = 'none';
+		}
+	});
+}
+
 
 // Initial draw on page load
 async function SetupPage(pathname) {
 	ShowLoadingStatus();
 
 	var node_info = await LoadNodeInfo(pathname);
-	var svg = await MakePageByPathname(node_info);
+	if (node_info) {
+		var svg = await MakePageByPathname(node_info);
+		await RefreshMetrics(node_info);
+	}
 
-	RefreshMetrics(node_info);
 	StartRefreshTimer(node_info);
 }
 
-// Handle navigation
-navigation.addEventListener("navigate", async (e) => {
-	if (!e.canIntercept)
-		return true;
-	e.intercept();  // do not load new page but change address bar
-
-	var target_url = new URL(e.destination.url);
-	await SetupPage(target_url.pathname);
-});
-
 // Init
+InitEventHandlers();
 await SetupPage(window.location.pathname);

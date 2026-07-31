@@ -22,8 +22,12 @@ provider_metrics = {}
 
 def GetUserFriendlyValue(value, levels_config):
     measurement = levels_config['measurement'] if 'measurement' in levels_config else ''
-    if float(value) >= 1000:
-        return f"{float(value): >14,.2f}{measurement}"
+    try:
+        if float(value) >= 1000:
+            return f"{float(value): >14,.2f}{measurement}"
+    except:
+        return f"?{measurement}"
+
     return f"{value}{measurement}"
 
 
@@ -38,8 +42,10 @@ def GetStatusByValue(value, node_config, config):
 
         if 'value_source' in node_config:
             details = f"{node_config['value_source']}: {value}"
-        else:
+        elif value != '':
             details = f"{value}"
+        else:
+            details = f"value: {value}"
 
         if status2idx[status] > 0:
             if status in levels_config:

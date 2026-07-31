@@ -3,10 +3,11 @@ FROM python:3.14-alpine
 # coreutils to use modern utils
 RUN apk add coreutils socat jq
 
-# setup user with group 'ping' to get access to docker socket
+# setup user with group 109(docker) to get access to docker socket
 ARG USER_NAME=app-user
 RUN adduser -D -s /bin/bash $USER_NAME && \
-	addgroup $USER_NAME ping
+	addgroup -g 109 docker && \
+	addgroup $USER_NAME docker
 
 # path to pip installed tools
 ENV PATH="$PATH:/home/${USER_NAME}/.local/bin"

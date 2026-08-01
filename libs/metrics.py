@@ -178,7 +178,8 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
             and last_metric['ts'] + delay < int(time.time())
         ):
             print('Notify about new status:')
-            # use ☮ or 😌 to status normal?
+            # use ☮ to status normal?
+            # or 😌, ⚠️ and 🔥?
             danger_prefix = '(!) ' if node_metrics['status'] == 'danger' else ''
             message = f"{danger_prefix}{node_name} in {node_metrics['status']}: {node_metrics['details']}"
             print(message)

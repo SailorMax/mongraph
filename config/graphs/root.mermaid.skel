@@ -1,8 +1,11 @@
 flowchart TB
 
-app-server["Application server"]
-app-valkey["Application database"]
-internet
+subgraph "Application"
+	app-server["server"]
+	app-valkey["database"]
+	app-cron["cron"]
 
-app-server --> app-valkey
-app-server --> internet
+	app-server --> app-valkey
+	app-server --> app-cron
+	app-server --> internet
+end

@@ -1,13 +1,23 @@
-label: "Project name"
+%YAML 1.2
+---
+
+label: "Yor project name"
+ui_update_interval: 35  # seconds
+
 graph_file: root.mermaid
 database_uri: valkey://valkey:6379/0
 defaults:
-  cron: 5s  # how often refresh sensors data
-  level_direction: up  # if up, `warning_level` mean value >= warning_level. If down - value <= warning_level
-  normal_level: null  # if normal_level defined, then any other value is danger
-  warning_level: 90
-  danger_level: 95
-  measurement: '%'
+  update_interval: 60  # in seconds
+  levels:
+    normal: null  # if normal defined, then any other value is danger
+    warning: 'value >= 90'
+    danger: 'value >= 95'
+    measurement: '%'
+notifications:
+  delay: 60  # in seconds
+  recipients:
+    - mailto://user@foo.com
+    - shell://sent-to-telegram.sh
 
 providers:
   my-prometeus:
@@ -35,8 +45,10 @@ providers:
         danger_level: 512
         measurement: 'MB'
       oom-count:
-        query: 'node_vmstat_oom_kill{project="my-proj"} > 0'
-        track_changes_per: 86400  # seconds
+        query: 'increase(node_vmstat_oom_kill{project="my-proj"}[1h]) > 0'
+        levels:
+          warning: 'value > 0'
+          danger: 'value > 2'
       cpu-busy:
         query: 'sum by (location, name, instance) (node_load5{project="my-proj"}) / count by (location, name, instance) (node_cpu_seconds_total{project="my-proj", mode="idle"}) * 100'
         warning_level: 90
@@ -45,35 +57,43 @@ providers:
 
 nodes:
   app-server:
-    label: "Application server"
+    label: "App server"
     graph_file: app-server.mermaid
     child_nodes:
-      app-server-cpu:
+      app-server-cpu-busy:
         metric_source: shell://top -bn1 | grep "CPU:" | head -n 1 | sed "s/% idle //g" | awk '{ print 100 - $8 }'
         # for debian: top -bn1 | grep "Cpu(s)" | sed "s/id,//g" | awk '{print 100-$8}'
       app-server-memory:
         metric_source: shell://free | awk '/^Mem:/ {print int($3/$2 * 100)}'
       app-server-disk-free:
         metric_source: shell://df -mT | sed 1d | grep -v -E '\s(tmpfs|devtmpfs|overlay|rootfs)\s' | awk '{print $7, $5}'
-        metric_mask: '(?<name>[^\s]+)\s+(?<value>[^\s]+)'
-        level_direction: down
-        warning_level: 2048
-        danger_level: 1024
-        measurement: 'MB'
+        metric_mask_re: '^(?P<name>[^\s]+)\s+(?P<value>[^\s]+)'
+        levels:
+          warning: 'value <= 2048'
+          danger: 'value <= 1024'
+          measurement: 'MB'
+      app-server-oom:
+        metric_source: shell://[ -f /var/log/syslog ] && awk -v cutoff="$(date -d "-1 hour" "+%s")" -v os_start_ts="$(date -d "$(who -b|awk '{print $3,$4}')" "+%s")" 'os_start_ts+substr($0, 1, 15) >= cutoff' /mnt/host_syslog | grep -i "oom-killer" | wc -l || echo -1
+        levels:
+          warning: 'value > 0 or value < 0'
+          danger: 'value > 1'
 
   app-valkey:
-    label: "Application database"
-    metric_source: https://valkey:9104/metrics
-    value_source: http-code
-    normal_level: 200
+    label: "App database"
+    metric_source: shell://nc -z valkey 6379
+    value_source: exit-code
+    levels:
+      normal: 'value == 0'
+
+  app-cron:
+    label: "App cron"
+    metric_source: shell://[ -S /mnt/host_docker.sock ] && [ -w /mnt/host_docker.sock ] && curl -s --unix-socket /mnt/host_docker.sock "http://localhost/containers/json" | jq '.[].Names' -c | grep "mongraph-cron" | wc -l || echo -1
+    levels:
+      normal: 'value == "1"'
 
   internet:
     label: "Internet"
     metric_source: https://google.com/
     value_source: http-code
-    normal_level: 200
-
-  sub-project:
-    label: "my-sub-project"
-    child_nodes_from_provider:
-      - provider://my-prometeus?filter=(location=alpha1)&node_name_attr=name
+    levels:
+      normal: 'value == 200'

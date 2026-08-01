@@ -1,5 +1,5 @@
 import re
-import yaml
+from ruamel.yaml import YAML
 from pathlib import Path
 
 allow4web_keys = [
@@ -12,7 +12,7 @@ allow4web_keys = [
 
 def LoadConfig():
     with open(f"{Path(__file__).parent.parent}/config/config.yml", "r", encoding="utf-8") as config_file:
-        return yaml.safe_load(config_file)
+        return YAML(typ='safe').load(config_file)
     return {}
 
 

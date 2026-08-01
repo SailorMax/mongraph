@@ -1,6 +1,8 @@
 services:
   app: &app-master
     build: ./
+    args:
+      USER_GID: ${DOCKER_GID:-109}  # gid of docker.sock
     image: mongraph-app
     container_name: mongraph-app
     ports:

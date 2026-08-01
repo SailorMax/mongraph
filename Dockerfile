@@ -3,10 +3,11 @@ FROM python:3.14-alpine
 # coreutils to use modern utils
 RUN apk add coreutils socat jq
 
-# setup user with group 109(docker) to get access to docker socket
+# setup user with group of docker to get access to docker socket file
 ARG USER_NAME=app-user
+ARG USER_GID=109
 RUN adduser -D -s /bin/bash $USER_NAME && \
-	addgroup -g 109 docker && \
+	addgroup -g $USER_GID docker && \
 	addgroup $USER_NAME docker
 
 # path to pip installed tools

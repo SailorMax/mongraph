@@ -1,7 +1,7 @@
 FROM python:3.14-alpine
 
 # coreutils to use modern utils
-RUN apk add coreutils socat jq
+RUN apk add coreutils curl jq
 
 # setup user with group of docker to get access to docker socket file
 ARG USER_NAME=app-user

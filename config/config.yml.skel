@@ -16,7 +16,7 @@ defaults:
 notifications:
   delay: 60  # in seconds
   recipients:
-    - mailto://user@foo.com
+    - smtp://login:pasword@stmp.server:port?from=noreply@foo.com&to=user@foo.com
     - shell://sent-to-telegram.sh
 
 providers:

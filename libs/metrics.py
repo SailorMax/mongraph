@@ -6,6 +6,8 @@ import httpx
 import libs.config as cfg
 import libs.db as db
 import libs.helpers as helpers
+import smtplib
+from email.message import EmailMessage
 from urllib.parse import urlparse, parse_qs
 from simpleeval import simple_eval
 
@@ -158,17 +160,69 @@ def AppendLogFreshMetrics(history, metrics):
         history.sort(key=lambda x: x['ts'], reverse=True)
         if history[0]['status'] == metrics['status']:
             # actual values do not put in history to do not duplicate statuses + to see real history values between statuses
-            return history, False
+            return history
 
     history.insert(0, metrics)  # add to begin of list
     if len(history) > 9:  # history limit
         history = history[0:9]
-    return history, True
+    return history
 
 
-async def StoreNodeStatus(node_name, status, details, node_metrics=None):
-    if node_metrics is None:
-        node_metrics = await GetStoredNodeMetrics(node_name)
+async def NotifyAboutNewStatus(node_name, node_metrics, config):
+    if 'notifications' in config:
+        last_metric = node_metrics['history'][0]
+        delay = config.get('delay', 0)
+
+        if (not last_metric.get('notified', False)
+            and status2idx[node_metrics['status']] > 0
+            and last_metric['ts'] + delay < int(time.time())
+        ):
+            print('Notify about new status:')
+            # use ☮ or 😌 to status normal?
+            danger_prefix = '(!) ' if node_metrics['status'] == 'danger' else ''
+            message = f"{danger_prefix}{node_name} in {node_metrics['status']}: {node_metrics['details']}"
+            print(message)
+
+            recipients = config.get('recipients', [])
+            for recipient in recipients:
+                recipient_params = urlparse(recipient)
+                recipient_type = recipient_params.netloc
+                recipient_args = parse_qs(recipient_params.query)
+
+                match recipient_type:
+                    case 'mailto':
+                        try:
+                            email = EmailMessage()
+                            email["Subject"] = message.split("\n", 1)[0]
+                            email["From"] = recipient_args["from"]
+                            email["To"] = recipient_args["to"]
+                            email.set_content(message)
+
+                            with smtplib.SMTP_SSL(recipient_params.hostname, recipient_params.port) as server:
+                                server.login(recipient_params.username, recipient_params.password)
+                                server.send_message(email)
+
+                            print("sent")
+                            # node_metrics['history'][0]['notified'] = True
+                        except Exception as e:
+                            print(f"(!) Failed to send email. Error: {e}")
+
+                    case 'shell':
+                        cmd = recipient.split('://', maxsplit=1)[1]
+                        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                        stdout, stderr = await proc.communicate()
+                        if len(stderr) > 0:
+                            print(f"(!) {stderr.decode('utf-8')}")
+                        elif await proc.wait() != 0:
+                            print(f"(!) Failed send notification via: {cmd}")
+
+                    case _:
+                        print(f"(!) Recipient type '{recipient_type}' is unknown.")
+
+    return node_metrics
+
+
+async def StoreNodeStatus(node_name, status, details, node_metrics, config):
 
     # latest data separately to do not duplicate same status in history
     latest_metrics = {
@@ -178,22 +232,14 @@ async def StoreNodeStatus(node_name, status, details, node_metrics=None):
     }
 
     node_metrics.update(latest_metrics)
-    node_metrics['history'], appended = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
+    node_metrics['history'] = AppendLogFreshMetrics(node_metrics['history'], latest_metrics)
+
+    node_metrics = await NotifyAboutNewStatus(node_name, node_metrics, config)
 
     # print('store:')
     # print([node_name, json.dumps(node_metrics)])
     stored = await db.SetValueByKey(node_name, json.dumps(node_metrics))
-    return stored, appended
-
-
-def NotifyAboutNewStatus(node_name, status, details, config):
-    print('Notify about new status:')
-    print([node_name, status, details])
-    if 'notifications' in config:
-        delay = config.get('delay', 0)
-        recipients = config.get('recipients', [])
-        for recipient in recipients:
-            print(recipient)
+    return stored, node_metrics
 
 
 async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
@@ -256,12 +302,10 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
                 print(f"(!) Metric source '{source_type}' is unknown.")
 
         status, details = GetStatusByValue(value, node_config, config)
-        stored, appended = await StoreNodeStatus(node_name, status, details, node_metrics)
-        if appended:
-            # TODO: move it to separate function, because of delay parameter!
-            NotifyAboutNewStatus(node_name, status, details, config)
+        stored, node_metrics = await StoreNodeStatus(node_name, status, details, node_metrics, config)
         # print(json.dumps(node_metrics, indent=2))
-    return
+
+    return True
 
 
 async def RefreshMetricsByConfig(config, provider_metrics, node_config=None):

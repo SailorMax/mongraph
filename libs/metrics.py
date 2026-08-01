@@ -179,13 +179,13 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
         ):
             print('Notify about new status:')
             status2prefix = {
-                'normal': '😌',   # (☮)
+                'normal': '😌',   # (-)
                 'warning': '⚠️',  # (!?)
                 'danger': '🔥'    # (!)
             }
             msg_prefix = status2prefix[node_metrics['status']]
 
-            message = f"{msg_prefix}{node_name} in {node_metrics['status']}: {node_metrics['details']}"
+            message = f"{msg_prefix} {node_name} in {node_metrics['status']}: {node_metrics['details']}"
             print(message)
 
             recipients = config.get('recipients', [])

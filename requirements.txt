@@ -1,6 +1,6 @@
 # server
-uvicorn==0.51.0
-fastapi==0.139.0
+uvicorn==0.52.0
+falcon==4.3.1
 
 # database
 valkey==6.1.1

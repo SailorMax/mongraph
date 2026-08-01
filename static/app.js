@@ -427,14 +427,14 @@ function InitEventHandlers()
 	// timer
 	document.querySelector('#refresh_control BUTTON').addEventListener('click', async function(e) {
 		if (StopRefreshTimer()) {
-			this.innerText = "Refresh";
+			this.innerText = "refresh";
 			document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'none';
 			document.querySelector('#refresh_control SPAN').innerText = 'Last update: ' + GetReadableDatetime();
 			return;
 		}
 
 		await RefreshMetrics();
-		this.innerText = "Stop";
+		this.innerText = "stop";
 		document.querySelector('#refresh_control SPAN:nth-child(2)').style.display = 'inline';
 	});
 

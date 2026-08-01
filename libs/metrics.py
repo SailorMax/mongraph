@@ -178,16 +178,20 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
             and last_metric['ts'] + delay < int(time.time())
         ):
             print('Notify about new status:')
-            # use ☮ to status normal?
-            # or 😌, ⚠️ and 🔥?
-            danger_prefix = '(!) ' if node_metrics['status'] == 'danger' else ''
-            message = f"{danger_prefix}{node_name} in {node_metrics['status']}: {node_metrics['details']}"
+            status2prefix = {
+                'normal': '😌',   # (☮)
+                'warning': '⚠️',  # (!?)
+                'danger': '🔥'    # (!)
+            }
+            msg_prefix = status2prefix[node_metrics['status']]
+
+            message = f"{msg_prefix}{node_name} in {node_metrics['status']}: {node_metrics['details']}"
             print(message)
 
             recipients = config.get('recipients', [])
             for recipient in recipients:
                 recipient_params = urlparse(recipient)
-                recipient_type = recipient_params.netloc
+                recipient_type_prefix, recipient_type = recipient_params.netloc.split('+', 1)
                 recipient_args = parse_qs(recipient_params.query)
 
                 match recipient_type:
@@ -199,7 +203,14 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
                             email["To"] = recipient_args["to"]
                             email.set_content(message)
 
+                            if status2idx[node_metrics['status']] > 0:
+                                email["X-Priority"] = "1"
+                                email["X-MSMail-Priority"] = "High"       # For Microsoft Outlook/Exchange clients
+                                email["Importance"] = "High"              # General standard text classification
+
                             with smtplib.SMTP_SSL(recipient_params.hostname, recipient_params.port) as server:
+                                if recipient_type_prefix == 'tls':
+                                    server.starttls()
                                 server.login(recipient_params.username, recipient_params.password)
                                 server.send_message(email)
 

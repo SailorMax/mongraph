@@ -8,10 +8,6 @@ services:
     container_name: mongraph-app
     ports:
       - 127.0.0.1:8000:5000
-    volumes:
-      - /temp/mongraph/:/mnt/host_temp:ro  # to calc free space of host
-      - /var/log/syslog:/mnt/host_syslog:ro  # to search OOM in host's log
-      - /var/run/docker.sock:/mnt/host_docker.sock:rw  # to get host's docker information
     stop_grace_period: 3s
 
   cron:
@@ -19,6 +15,11 @@ services:
     container_name: mongraph-cron
     ports: []
     user: root
+    volumes:
+      # (!) directly mount log files will be "broken" after any kind of logrotate. Better mount directory of log files
+      - /temp/mongraph/:/mnt/host_temp:ro  # to calc free space of host
+      - /var/log/syslog:/mnt/host_syslog:ro  # to search OOM in host's log
+      - /var/run/docker.sock:/mnt/host_docker.sock:rw  # to get host's docker information
     entrypoint: ["crond", "-f", "-d", "5"]
 
   valkey:

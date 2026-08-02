@@ -67,17 +67,26 @@ nodes:
       app-server-memory:
         metric_source: shell://free | awk '/^Mem:/ {print int($3/$2 * 100)}'
       app-server-disk-free:
-        metric_source: shell://df -mT | sed 1d | grep -v -E '\s(tmpfs|devtmpfs|overlay|rootfs)\s' | awk '{print $7, $5}'
-        metric_mask_re: '^(?P<name>[^\s]+)\s+(?P<value>[^\s]+)'
+        metric_source:
+          data_source: shell://df -mT | sed 1d | grep -v -E '\s(tmpfs|devtmpfs|overlay|rootfs)\s' | awk '{print $7, $5}'
+          mask_re: '^(?P<name>[^\s]+)\s+(?P<value>[^\s]+)'
         levels:
           warning: 'value <= 2048'
           danger: 'value <= 1024'
           measurement: 'MB'
       app-server-oom:
-        metric_source: shell://[ -f /var/log/syslog ] && awk -v cutoff="$(date -d "-1 hour" "+%s")" -v os_start_ts="$(date -d "$(who -b|awk '{print $3,$4}')" "+%s")" 'os_start_ts+substr($0, 1, 15) >= cutoff' /mnt/host_syslog | grep -i "oom-killer" | wc -l || echo -1
+        # metric_source: shell://[ -f /var/log/syslog ] && awk -v cutoff="$(date -d "-1 hour" "+%s")" -v os_start_ts="$(date -d "$(who -b|awk '{print $3,$4}')" "+%s")" 'os_start_ts+substr($0, 1, 15) >= cutoff' /mnt/host_syslog | grep -i "oom-killer" | wc -l || echo -1
+        metric_source:
+          data_source: file://mnt/host_syslog
+          mask_re: '^(?P<datetime>[^:]+\d{2}:\d{2})\s+.*(?P<value>[^\s]+ invoked oom-killer .*)'
+          datetime_format: '%b %d %H:%M:%S'
+          rows_filter: 'timestamp(datetime) > now() - 60*60*24'
+        # levels:
+        #   warning: 'value > 0 or value < 0'
+        #   danger: 'value > 1'
         levels:
-          warning: 'value > 0 or value < 0'
-          danger: 'value > 1'
+          warning: 'isnull(value)'
+          danger: 'len(value) > 0'
 
   app-valkey:
     label: "App database"

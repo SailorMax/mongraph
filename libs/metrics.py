@@ -9,6 +9,7 @@ import libs.helpers as helpers
 import smtplib
 from email.message import EmailMessage
 from urllib.parse import urlparse, parse_qs
+from datetime import datetime
 from simpleeval import simple_eval
 
 status2idx = {
@@ -40,7 +41,11 @@ def GetStatusByValue(value, node_config, config):
     if value is None:
         details = 'Could not detect status. Value is empty.'
     elif 'normal' in levels_config and levels_config['normal']:
-        status = 'normal' if simple_eval(levels_config['normal'], names={'value': value}) else 'danger'
+        try:
+            status = 'normal' if simple_eval(levels_config['normal'], names={'value': value}) else 'danger'
+        except Exception as e:
+            print(e)
+            status = 'danger'
 
         if 'value_source' in node_config:
             details = f"{node_config['value_source']}: {value}"
@@ -254,6 +259,160 @@ async def StoreNodeStatus(node_name, status, details, node_metrics, config):
     return stored, node_metrics
 
 
+def GetNodeLevels(node_config, config):
+    if 'levels' in node_config:
+        return node_config['levels']
+
+    data_source = ''
+    if type(node_config['metric_source']) is str:
+        data_source = node_config['metric_source']
+    else:
+        data_source = node_config['metric_source']['data_source']
+
+    source_type, cmd = data_source.split('://', maxsplit=1)
+    match source_type:
+        case 'metrics+provider':
+            path = cmd.split('?', 2)[0]
+            provider_name, metric_name = path.split('/', 2)
+            provider_metric_config = config['providers'][provider_name]['metrics'][metric_name]
+            if 'levels' in provider_metric_config:
+                return provider_metric_config['levels']
+
+    return None
+
+
+def Datetime2Ts(dt_str, metric_source):
+    # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
+    dt_formats = [
+        "%d-%m-%Y %H:%M:%S",    # 31-01-2026
+        "%Y-%m-%d %H:%M:%S",    # 2026-01-31
+        "%d/%m/%Y %H:%M:%S",    # 31/01/2026
+        "%Y/%m/%d %H:%M:%S",    # 2026/01/31
+        "%d %B %Y %H:%M:%S",    # 31 January 2026
+        "%B %d, %Y %H:%M:%S",   # January 31, 2026
+        "%b %d %H:%M:%S",       # Jan 31
+    ]
+    if 'datetime_format' in metric_source:
+        dt_formats = [metric_source['datetime_format']]
+
+    for fmt in dt_formats:
+        try:
+            dt = datetime.strptime(dt_str, fmt)
+            return int(dt.timestamp())
+        except ValueError:
+            continue
+
+    print('(!) Unknown format of datetime: dt_str')
+    return None
+
+
+def FilterMetricValue(orig_value, metric_source):
+    if type(metric_source) is str:
+        return orig_value
+
+    mask_re = metric_source.get('mask_re', None)
+    rows_filter = metric_source.get('rows_filter', None)
+    named_values = {}
+
+    if mask_re:
+        match = re.search(rf"{mask_re}", orig_value)
+        if match:
+            named_values = match.groupdict()
+
+    if rows_filter:
+        if 'value' not in named_values:
+            named_values['value'] = orig_value
+        funcs = {
+            'now': lambda: int(time.time()),
+            'timestamp': lambda dt: Datetime2Ts(dt, metric_source),
+        }
+
+        try:
+            if not simple_eval(rows_filter, names=named_values, functions=funcs):
+                return None
+        except Exception as e:
+            print(e)
+            return None
+
+    if named_values:
+        return named_values
+    return orig_value
+
+
+async def MetricSourceRowsGenerator(metric_source, node_config):
+    data_source = metric_source
+    if type(metric_source) is dict:
+        data_source = metric_source['data_source']
+
+    source_type, cmd = data_source.split('://', maxsplit=1)
+    match source_type:
+        case 'metrics+provider':
+            value = FilterMetricValue(node_config['metric_data'][0][1], metric_source)  # first item has latest meterics
+            yield value
+
+        case 'shell':
+            proc = await asyncio.create_subprocess_shell(cmd,
+                                                         stdout=asyncio.subprocess.PIPE,
+                                                         stderr=asyncio.subprocess.PIPE
+                                                         )
+            if 'value_source' in node_config and node_config['value_source'] == 'exit-code':
+                yield await proc.wait()
+            else:
+                while True:
+                    if not proc.stdout:
+                        break
+
+                    row = await proc.stdout.readline()
+                    if not row:  # EOF
+                        break
+
+                    value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
+                    if value:
+                        yield value
+
+                _, stderr = await proc.communicate()
+                if len(stderr) > 0:
+                    yield stderr.decode('utf-8')
+
+        case 'https' | 'http':
+            try:
+                async with httpx.AsyncClient(timeout=1.0) as client:
+                    response = await client.stream(node_config['metric_source'], follow_redirects=True)
+                    if node_config['value_source'] == 'http-code':
+                        yield response.status_code
+                    else:
+                        async for row in response.iter_lines():
+                            value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
+                            if value:
+                                yield value
+            except httpx.TimeoutException:
+                if node_config['value_source'] == 'http-code':
+                    yield 408
+            except httpx.RequestError:
+                if node_config['value_source'] == 'http-code':
+                    yield 500
+            except httpx.HTTPStatusError as exc:
+                if node_config['value_source'] == 'http-code':
+                    yield exc.response.status_code
+            except Exception as e:
+                print(f"(!) {str(e)}")
+
+        case 'file':
+            try:
+                with open(cmd, "r") as file:
+                    for row in file:
+                        value = FilterMetricValue(row, metric_source)
+                        if value:
+                            yield value
+
+            except Exception as e:
+                print(f"(!) {str(e)}")
+
+        case _:
+            print(f"(!) Metric source '{source_type}' is unknown.")
+    return
+
+
 async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
     if 'metric_source' not in node_config:
         return False
@@ -262,56 +421,17 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
     update_interval = node_config['update_interval'] if 'update_interval' in node_config else config['defaults']['update_interval']
 
     if node_metrics['ts'] + update_interval < int(time.time()):
-        value = None
-        source_type, cmd = node_config['metric_source'].split('://', maxsplit=1)
-        match source_type:
-            case 'metrics+provider':
-                path, query = cmd.split('?', 2)
-                # parsed_query = parse_qs(query)
+        if 'levels' not in node_config:
+            node_config['levels'] = GetNodeLevels(node_config, config)
 
-                if 'levels' not in node_config:
-                    provider_name, metric_name = path.split('/', 2)
-                    provider_metric_config = config['providers'][provider_name]['metrics'][metric_name]
-                    if 'levels' in provider_metric_config:
-                        node_config['levels'] = provider_metric_config['levels']
-
-                values = []
-                for metric_row in node_config['metric_data']:
-                    values.append(metric_row['value'])
-
-                value = values[0][1]  # first item has latest meterics
-
-            case 'shell':
-                proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, stderr = await proc.communicate()
-                if len(stderr) > 0:
-                    value = stderr.decode('utf-8')
-                elif 'value_source' in node_config and node_config['value_source'] == 'exit-code':
-                    value = await proc.wait()
-                elif 'metric_mask_re' in node_config:
-                    matches = re.finditer(rf"{node_config['metric_mask_re']}", stdout.decode('utf-8'), re.MULTILINE)
-                    value = [(match.group('name'), match.group('value')) for match in matches]
-                else:
-                    value = stdout.decode('utf-8').strip()
-
-            case 'https' | 'http':
-                try:
-                    async with httpx.AsyncClient(timeout=1.0) as client:
-                        response = await client.get(node_config['metric_source'], follow_redirects=True)
-                        if node_config['value_source'] == 'http-code':
-                            value = response.status_code
-                except httpx.TimeoutException:
-                    value = 408
-                except httpx.RequestError:
-                    value = 500
-                except httpx.HTTPStatusError as exc:
-                    value = exc.response.status_code
-                except Exception as e:
-                    print(f"(!) {str(e)}")
-                    value = None
-
-            case _:
-                print(f"(!) Metric source '{source_type}' is unknown.")
+        values_rows = []
+        metric_rows_cursor = await MetricSourceRowsGenerator(node_config['metric_source'], node_config)
+        async for row in metric_rows_cursor:
+            if type(row) is dict:
+                values_rows.append((row.get('name', ''), row.get('value', '')))
+            else:
+                values_rows.append(row)
+        value = "\n".join(values_rows)
 
         status, details = GetStatusByValue(value, node_config, config)
         stored, node_metrics = await StoreNodeStatus(node_name, status, details, node_metrics, config)

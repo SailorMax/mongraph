@@ -8,6 +8,15 @@ from urllib.parse import urlparse, parse_qs
 from simpleeval import simple_eval, NameNotDefined
 
 
+def recursive_extend_dict(dict1, dict2):
+    for key, value in dict2.items():
+        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
+            dict1[key] = recursive_extend_dict(dict1[key], value)
+        else:
+            dict1[key] = value
+    return dict1
+
+
 async def GetStoredProviderMetrics(config):
     provider_metrics = {}
     providers = config['providers']
@@ -104,7 +113,10 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                         print(f"(!) Provider '{parsed_uri.netloc}' not found from uri {provider_nodes_uri}")
 
         for node_name in virtual_node_names:
-            nodes[node_name] = virtual_node_names[node_name]
+            # nodes[node_name] = virtual_node_names[node_name]
+            if node_name not in nodes:
+                nodes[node_name] = {}
+            recursive_extend_dict(nodes[node_name], virtual_node_names[node_name])
 
     return nodes
 

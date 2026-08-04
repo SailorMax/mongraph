@@ -6,9 +6,9 @@ RUN apk add coreutils curl jq
 # setup user with group of docker to get access to docker socket file
 ARG USER_NAME=app-user
 ARG USER_GID=109
-RUN adduser -D -s /bin/bash $USER_NAME && \
-	addgroup -g $USER_GID docker && \
-	addgroup $USER_NAME docker
+RUN adduser -D -s /bin/sh $USER_NAME && \
+	(getent group $USER_GID || addgroup -g $USER_GID docker) && \
+	addgroup $USER_NAME $(getent group $USER_GID | cut -d: -f1)
 
 # path to pip installed tools
 ENV PATH="$PATH:/home/${USER_NAME}/.local/bin"

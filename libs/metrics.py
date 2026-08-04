@@ -38,27 +38,8 @@ def GetStatusByValue(value, node_config, config):
     status, details = 'unknown', ''
     levels_config = node_config['levels'] if 'levels' in node_config else config['defaults']['levels']
 
-    if value is None:
+    if not value:
         details = 'Could not detect status. Value is empty.'
-    elif 'normal' in levels_config and levels_config['normal']:
-        try:
-            status = 'normal' if simple_eval(levels_config['normal'], names={'value': value}) else 'danger'
-        except Exception as e:
-            print(e)
-            status = 'danger'
-
-        if 'value_source' in node_config:
-            details = f"{node_config['value_source']}: {value}"
-        elif value != '':
-            details = f"{value}"
-        else:
-            details = f"value: {value}"
-
-        if status2idx[status] > 0:
-            if status in levels_config:
-                details += f"\n({status}: {levels_config[status]})"
-            else:
-                details += f"\n(normal: {levels_config['normal']})"
     else:
         levels_config['direction'] = 'up'
         if ('danger' in levels_config
@@ -66,31 +47,71 @@ def GetStatusByValue(value, node_config, config):
             ):
             levels_config['direction'] = 'down'
 
+        # sort values and get `worst_value`
+        values = []
+        worst_value = value
         if type(value) is list:
-            values = sorted(value, key=lambda item: float(item[1]), reverse=(levels_config['direction'] != 'down'))
-            value = values[0][1]
-            details = "\n".join([f"{GetUserFriendlyValue(item[1], levels_config)}  {item[0]}" for item in values])
-            if len(values) == 1:
-                details = details.strip()
+            values = sorted(value, key=lambda item: float(item[0]), reverse=(levels_config['direction'] != 'down'))
+            worst_value = values[0]  # take worst value for status
+
+        # collect details from sorted `values`
+        if len(worst_value) > 1:  # values has names
+            details = "\n".join([f"{GetUserFriendlyValue(item[0], levels_config)}  {item[1]}" for item in values])
         else:
-            details = GetUserFriendlyValue(value, levels_config).strip()
+            details = "\n".join([GetUserFriendlyValue(item[0], levels_config) for item in values])
+        # get value from worst_value (without names)
+        worst_value = worst_value[0]
 
+        # prepare `worst_value` to calcs
         try:
-            value = float(value)
-            status = 'normal'
-            for level_name in status_pripority_names:
-                if (level_name in levels_config
-                    and type(levels_config[level_name]) is str
-                    and simple_eval(levels_config[level_name], names={'value': value})
-                    ):
-                    status = level_name
-                    break
-        except Exception as e:
-            print(e)
-            status = 'danger'
+            worst_value = int(worst_value)
+        except Exception:
+            try:
+                worst_value = float(worst_value)
+            except Exception:
+                pass  # leave as is
 
-        if status2idx[status] > 0:
-            details += f"\n({status}: {levels_config[status]})"
+        # prepare details for single value
+        if len(values) == 1:
+            details = details.strip()
+
+        # levels based on normal
+        if 'normal' in levels_config and levels_config['normal']:
+            try:
+                status = 'normal' if simple_eval(levels_config['normal'], names={'value': worst_value}) else 'danger'
+            except Exception as e:
+                print(e)
+                status = 'danger'
+
+            if 'value_source' in node_config:
+                details = f"{node_config['value_source']}: {worst_value}"
+            elif worst_value != '':
+                details = f"{worst_value}"
+            else:
+                details = f"value: {worst_value}"
+
+            if status2idx[status] > 0:
+                if status in levels_config:
+                    details += f"\n({status}: {levels_config[status]})"
+                else:
+                    details += f"\n(normal: {levels_config['normal']})"
+        # levels based on danger/warning
+        else:
+            try:
+                status = 'normal'
+                for level_name in status_pripority_names:
+                    if (level_name in levels_config
+                        and type(levels_config[level_name]) is str
+                        and simple_eval(levels_config[level_name], names={'value': worst_value})
+                        ):
+                        status = level_name
+                        break
+            except Exception as e:
+                print(e)
+                status = 'danger'
+
+            if status2idx[status] > 0:
+                details += f"\n({status}: {levels_config[status]})"
 
     return status, details
 
@@ -278,7 +299,7 @@ def GetNodeLevels(node_config, config):
             if 'levels' in provider_metric_config:
                 return provider_metric_config['levels']
 
-    return None
+    return config['defaults']['levels']
 
 
 def Datetime2Ts(dt_str, metric_source):
@@ -347,7 +368,7 @@ async def MetricSourceRowsGenerator(metric_source, node_config):
     source_type, cmd = data_source.split('://', maxsplit=1)
     match source_type:
         case 'metrics+provider':
-            value = FilterMetricValue(node_config['metric_data'][0][1], metric_source)  # first item has latest meterics
+            value = FilterMetricValue(node_config['metric_data'][0]['value'][1], metric_source)  # first item has latest metrics
             yield value
 
         case 'shell':
@@ -377,14 +398,14 @@ async def MetricSourceRowsGenerator(metric_source, node_config):
         case 'https' | 'http':
             try:
                 async with httpx.AsyncClient(timeout=1.0) as client:
-                    response = await client.stream(node_config['metric_source'], follow_redirects=True)
-                    if node_config['value_source'] == 'http-code':
-                        yield response.status_code
-                    else:
-                        async for row in response.iter_lines():
-                            value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
-                            if value:
-                                yield value
+                    async with client.stream("GET", node_config['metric_source'], follow_redirects=True) as response:
+                        if node_config['value_source'] == 'http-code':
+                            yield response.status_code
+                        else:
+                            async for row in response.iter_lines():
+                                value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
+                                if value:
+                                    yield value
             except httpx.TimeoutException:
                 if node_config['value_source'] == 'http-code':
                     yield 408
@@ -425,13 +446,13 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
             node_config['levels'] = GetNodeLevels(node_config, config)
 
         values_rows = []
-        metric_rows_cursor = await MetricSourceRowsGenerator(node_config['metric_source'], node_config)
+        metric_rows_cursor = MetricSourceRowsGenerator(node_config['metric_source'], node_config)
         async for row in metric_rows_cursor:
             if type(row) is dict:
-                values_rows.append((row.get('name', ''), row.get('value', '')))
+                values_rows.append((row.get('value', ''), row.get('name', '')))
             else:
-                values_rows.append(row)
-        value = "\n".join(values_rows)
+                values_rows.append((row,))
+        value = values_rows
 
         status, details = GetStatusByValue(value, node_config, config)
         stored, node_metrics = await StoreNodeStatus(node_name, status, details, node_metrics, config)

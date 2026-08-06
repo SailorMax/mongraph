@@ -8,13 +8,15 @@ from urllib.parse import urlparse, parse_qs
 from simpleeval import simple_eval, NameNotDefined
 
 
-def recursive_extend_dict(dict1, dict2):
-    for key, value in dict2.items():
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
-            dict1[key] = recursive_extend_dict(dict1[key], value)
-        else:
-            dict1[key] = value
-    return dict1
+def recursive_union_dicts(*args: dict) -> dict:
+    base_dict = args[0]
+    for i in range(len(args) - 1):
+        for key, value in args[i + 1].items():
+            if key in base_dict and isinstance(base_dict[key], dict) and isinstance(value, dict):
+                base_dict[key] = recursive_union_dicts(base_dict[key], value)
+            else:
+                base_dict[key] = value
+    return base_dict
 
 
 async def GetStoredProviderMetrics(config):
@@ -90,7 +92,8 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                                             if simple_eval(metric_filter, names=metric_row['metric']):
                                                 if node_name not in virtual_node_names:
                                                     virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
-                                                node_metric_name = f"{node_name}--{provider_metric_name}"
+                                                # node_metric_name = f"{node_name}--{provider_metric_name}"
+                                                node_metric_name = provider_metric_name
                                                 if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
                                                     node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
                                                     if 'ip' in metric_row['metric']:
@@ -116,7 +119,7 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
             # nodes[node_name] = virtual_node_names[node_name]
             if node_name not in nodes:
                 nodes[node_name] = {}
-            recursive_extend_dict(nodes[node_name], virtual_node_names[node_name])
+            nodes[node_name] = recursive_union_dicts({}, virtual_node_names[node_name], nodes[node_name])
 
     return nodes
 

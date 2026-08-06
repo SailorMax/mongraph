@@ -120,14 +120,43 @@ async def RefreshProviderMetrics(config):
     now = int(time.time())
     provider_metrics = {}
     providers = config['providers']
-    for provider_name, provider_data in providers.items():
+    for provider_name, provider_cfg in providers.items():
+        if not provider_cfg or 'type' not in provider_cfg:
+            print(f"(!) Provider '{provider_name}' has not 'type' attribute.")
+            continue
+
         provider_metrics[provider_name] = {}
-        provider_base_url = provider_data['base_url']
-        match provider_data['type']:
-            case 'prometeus':
-                for metric_name, metric_data in provider_data['metrics'].items():
+        match provider_cfg['type']:
+            case 'plaintext':
+                # check update interval
+                db_key = f"providers / {provider_name}"
+                provider_stored_data = await db.GetValueByKey(db_key)
+                if provider_stored_data is None:
+                    provider_stored_data = {
+                        'last_check_ts': 0,
+                    }
+                else:
+                    provider_stored_data = json.loads(provider_stored_data)
+                update_interval = provider_cfg.get('update_interval', config['defaults']['update_interval'])
+                if provider_stored_data['last_check_ts'] + update_interval < now:
+                    continue
+                else:
+                    provider_stored_data['last_check_ts'] = now
+                    await db.SetValueByKey(db_key, provider_stored_data)
+
+                # collect raw metrics
+                raw_metrics = []
+                metric_rows_cursor = MetricSourceRowsGenerator(provider_cfg)
+                async for row_values in metric_rows_cursor:
+                    if type(row_values) is dict:
+                        raw_metrics.append(row_values)
+                    else:
+                        raw_metrics.append({'value': row_values})
+
+                # group metrics
+                for metric_name, metric_cfg in provider_cfg['metrics'].items():
                     # load old metrics
-                    db_key = f"providers / {provider_data['type']} / {metric_name}"
+                    db_key = f"providers / {provider_name} / {metric_name}"
                     item_metrics = await db.GetValueByKey(db_key)
                     if item_metrics is None:
                         item_metrics = {
@@ -138,12 +167,37 @@ async def RefreshProviderMetrics(config):
                         item_metrics = json.loads(item_metrics)
 
                     # refresh
-                    update_interval = metric_data['update_interval'] if 'update_interval' in metric_data else config['defaults']['update_interval']
+                    metric_source = metric_cfg.get('metric_source', {})
+                    values_list = []
+                    for row_data in raw_metrics:
+                        value = FilterMetricValue(row_data, metric_source)
+                        if value:
+                            values_list.append(value)
+                    print(metric_name)
+                    print(values_list)
+
+
+            case 'prometeus':
+                provider_base_url = provider_cfg['base_url']
+                for metric_name, metric_cfg in provider_cfg['metrics'].items():
+                    # load old metrics
+                    db_key = f"providers / {provider_cfg['type']} / {metric_name}"
+                    item_metrics = await db.GetValueByKey(db_key)
+                    if item_metrics is None:
+                        item_metrics = {
+                            'last_check_ts': 0,
+                            'metrics': []
+                        }
+                    else:
+                        item_metrics = json.loads(item_metrics)
+
+                    # refresh
+                    update_interval = metric_cfg.get('update_interval', config['defaults']['update_interval'])
                     if item_metrics['last_check_ts'] + update_interval < now:
                         try:
                             async with httpx.AsyncClient(timeout=3.0) as client:
                                 headers = {"Content-Type": "application/x-www-form-urlencoded"}
-                                content = f"query={metric_data['query']}"
+                                content = f"query={metric_cfg['query']}"
                                 response = await client.post(provider_base_url, headers=headers, content=content, follow_redirects=True)
                                 resp_json = response.json()
                                 if resp_json['status'] == 'success':
@@ -161,7 +215,7 @@ async def RefreshProviderMetrics(config):
 
                     provider_metrics[provider_name][metric_name] = item_metrics
             case _:
-                print(f"(!) {provider_name} / Provider type '{provider_data['type']}' is unknown.")
+                print(f"(!) {provider_name} / Provider type '{provider_cfg['type']}' is unknown.")
 
     return provider_metrics
 
@@ -360,10 +414,13 @@ def FilterMetricValue(orig_value, metric_source):
     return orig_value
 
 
-async def MetricSourceRowsGenerator(metric_source, node_config):
+async def MetricSourceRowsGenerator(node_config):
+    metric_source = node_config['metric_source']
     data_source = metric_source
     if type(metric_source) is dict:
         data_source = metric_source['data_source']
+    else:
+        metric_source = {'data_source': metric_source}
 
     source_type, cmd = data_source.split('://', maxsplit=1)
     match source_type:
@@ -396,25 +453,33 @@ async def MetricSourceRowsGenerator(metric_source, node_config):
                     yield stderr.decode('utf-8')
 
         case 'https' | 'http':
+            value_source = node_config.get('value_source', 'response')
             try:
-                async with httpx.AsyncClient(timeout=1.0) as client:
-                    async with client.stream("GET", node_config['metric_source'], follow_redirects=True) as response:
-                        if node_config['value_source'] == 'http-code':
+                request_timeout = metric_source.get('timeout', 1)
+                async with httpx.AsyncClient(timeout=request_timeout) as client:
+                    async with client.stream("GET", data_source, follow_redirects=True) as response:
+                        if value_source == 'http-code':
                             yield response.status_code
                         else:
-                            async for row in response.iter_lines():
-                                value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
+                            async for row in response.aiter_lines():
+                                value = FilterMetricValue(row.rstrip(), metric_source)
                                 if value:
                                     yield value
             except httpx.TimeoutException:
-                if node_config['value_source'] == 'http-code':
+                if value_source == 'http-code':
                     yield 408
-            except httpx.RequestError:
-                if node_config['value_source'] == 'http-code':
+                else:
+                    print(f"(!) {data_source}: timeout")
+            except httpx.RequestError as e:
+                if value_source == 'http-code':
                     yield 500
-            except httpx.HTTPStatusError as exc:
-                if node_config['value_source'] == 'http-code':
-                    yield exc.response.status_code
+                else:
+                    print(f"(!) {str(e)}")
+            except httpx.HTTPStatusError as e:
+                if value_source == 'http-code':
+                    yield e.response.status_code
+                else:
+                    print(f"(!) {str(e)}")
             except Exception as e:
                 print(f"(!) {str(e)}")
 
@@ -446,7 +511,7 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
             node_config['levels'] = GetNodeLevels(node_config, config)
 
         values_rows = []
-        metric_rows_cursor = MetricSourceRowsGenerator(node_config['metric_source'], node_config)
+        metric_rows_cursor = MetricSourceRowsGenerator(node_config)
         async for row in metric_rows_cursor:
             if type(row) is dict:
                 values_rows.append((row.get('value', ''), row.get('name', '')))

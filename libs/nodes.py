@@ -95,7 +95,6 @@ async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_con
     child_nodes = {}
     # print(f"1. {node_config['label'] if 'label' in node_config else node_config}")
     child_nodes_config = await helpers.CollectNodesOfCursor(node_config, provider_metrics, providers_config)
-    # print(child_nodes_config.keys())
     for child_name, child_node_config in child_nodes_config.items():
         # print(f"2. {child_name}: {json.dumps(child_node_config, indent=2)}")
         sub_child_nodes = await CollectNodesMetricSubTree(child_node_config, provider_metrics, providers_config)
@@ -103,7 +102,7 @@ async def CollectNodesMetricSubTree(node_config, provider_metrics, providers_con
             'label': child_node_config['label'] if 'label' in child_node_config else child_name,
             'graph_file': child_node_config['graph_file'] if 'graph_file' in child_node_config else None,
             'metric': await GetMetricOfNode(child_name, child_node_config, sub_child_nodes),
-            'metric_node': child_node_config['metric_node'] if 'metric_node' in child_node_config else None
+            'metric_location': child_node_config['metric_location'] if 'metric_location' in child_node_config else None
         }
         if sub_child_nodes:
             child_nodes[child_name]['child_nodes'] = sub_child_nodes

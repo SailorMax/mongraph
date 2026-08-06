@@ -23,34 +23,32 @@ async def GetStoredProviderMetrics(config):
     provider_metrics = {}
     providers = config['providers']
     for provider_name, provider_data in providers.items():
+        if not provider_data:
+            continue
+
         provider_metrics[provider_name] = {}
-        match provider_data['type']:
-            case 'prometeus':
-                for metric_name in provider_data['metrics']:
+        for metric_name in provider_data['metrics']:
+            db_key = f"providers / {provider_name} / {metric_name}"
+            item_metrics = await db.GetValueByKey(db_key)
+            if item_metrics is None:
+                item_metrics = {
+                    'last_check_ts': 0,
+                    'metrics': []
+                }
+            else:
+                item_metrics = json.loads(item_metrics)
 
-                    db_key = f"providers / {provider_data['type']} / {metric_name}"
-                    # airflow01.atlas.mchs.ru--memory-free
-                    item_metrics = await db.GetValueByKey(db_key)
-                    if item_metrics is None:
-                        item_metrics = {
-                            'last_check_ts': 0,
-                            'metrics': []
-                        }
-                    else:
-                        item_metrics = json.loads(item_metrics)
-
-                    provider_metrics[provider_name][metric_name] = item_metrics
+            provider_metrics[provider_name][metric_name] = item_metrics
 
     return provider_metrics
 
 
 async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config):
+    nodes = {}
     if 'nodes' in config_cursor:
         nodes = config_cursor['nodes']
     elif 'child_nodes' in config_cursor:
         nodes = config_cursor['child_nodes']
-    else:
-        nodes = {}
 
     if 'child_nodes_from_provider' in config_cursor:
         # generate virtual childs and collect data for them from provider's data
@@ -59,10 +57,11 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
             parsed_uri = urlparse(provider_nodes_uri)
             parsed_query = parse_qs(parsed_uri.query)
 
-            node_name_attr = 'instance'
-            metric_filter = 'true'
+            node_name_attr = []
             if 'node_name_attr' in parsed_query:
-                node_name_attr = parsed_query['node_name_attr'][0]
+                node_name_attr = parsed_query['node_name_attr'][0].split(',')  # list by comma
+
+            metric_filter = '1==1'
             if 'filter' in parsed_query:
                 metric_filter = parsed_query['filter'][0]
 
@@ -73,44 +72,57 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                         provider_config = providers_config[provider_name]
 
                         if provider_name in provider_metrics:
-                            current_provider_metrics = provider_metrics[provider_name]
+                            curr_provider_metrics = provider_metrics[provider_name]
 
                             for provider_metric_name in provider_config['metrics']:
-                                if provider_metric_name in current_provider_metrics:
-                                    current_provider_metrics_list = current_provider_metrics[provider_metric_name]['metrics']
+                                if provider_metric_name in curr_provider_metrics:
 
-                                    for metric_row in current_provider_metrics_list:
-                                        row_node_name_attr = node_name_attr
-                                        if row_node_name_attr not in metric_row['metric']:
-                                            row_node_name_attr = 'instance'
-                                            # provider_path = f"{parsed_uri.netloc} / {provider_metric_name}"
-                                            # print(f"(!) attr '{node_name_attr}' not found in metrics of provider {provider_path}: {metric_row}")
-                                            # continue
-                                        node_name = metric_row['metric'][row_node_name_attr]
-
+                                    provider_metrics_list = curr_provider_metrics[provider_metric_name]['metrics']
+                                    for metric_row in provider_metrics_list:
+                                        env_names = metric_row['metric']['env']  # only env, because system not require
                                         try:
-                                            if simple_eval(metric_filter, names=metric_row['metric']):
-                                                if node_name not in virtual_node_names:
-                                                    virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
-                                                # node_metric_name = f"{node_name}--{provider_metric_name}"
-                                                node_metric_name = provider_metric_name
-                                                if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
-                                                    node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
-                                                    if 'ip' in metric_row['metric']:
-                                                        metric_node = metric_row['metric']['ip']
-                                                    else:
-                                                        metric_node = metric_row['metric']['instance']
-                                                    virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
-                                                        'virtual': True,
-                                                        'label': provider_metric_name,
-                                                        'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
-                                                        'metric_data': [],
-                                                        'metric_node': metric_node
-                                                    }
-                                                virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
+                                            if simple_eval(metric_filter, names=env_names):
+                                                # choose name for node
+                                                node_name = None
+                                                row_node_name_attr = None
+                                                for attr in node_name_attr:
+                                                    node_name = env_names.get(attr)
+                                                    if node_name:
+                                                        row_node_name_attr = attr
+                                                        break
+
+                                                # collect node
+                                                if not node_name:
+                                                    if provider_metric_name not in virtual_node_names:
+                                                        virtual_node_names[provider_metric_name] = {
+                                                            'virtual': True,
+                                                            'label': provider_metric_name,
+                                                            'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}",
+                                                            'metric_data': [],
+                                                            'metric_location': metric_row['metric']['location']
+                                                        }
+                                                    virtual_node_names[provider_metric_name]['metric_data'].append(metric_row)
+
+                                                else:
+                                                    # take level 1 virtual node ( node_name )
+                                                    if node_name not in virtual_node_names:
+                                                        virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
+
+                                                    # fill childs by level 2 (metrics)
+                                                    node_metric_name = provider_metric_name
+                                                    if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
+                                                        node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
+                                                        virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
+                                                            'virtual': True,
+                                                            'label': provider_metric_name,
+                                                            'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
+                                                            'metric_data': [],
+                                                            'metric_location': metric_row['metric']['location']
+                                                        }
+                                                    virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
                                         except NameNotDefined as e:
                                             print(f"(!) {str(e)}")
-                                            print(f"Available names: {json.dumps(metric_row['metric'])}")
+                                            print(f"Available names: {json.dumps(env_names)}")
 
                     else:
                         print(f"(!) Provider '{parsed_uri.netloc}' not found from uri {provider_nodes_uri}")

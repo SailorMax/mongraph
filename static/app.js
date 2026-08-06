@@ -33,7 +33,7 @@ async function drawDiagram(graphDefinition)
 
 var sleepAsync = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function LoadFile(filename) {
+async function LoadFile(filename, require=false) {
 	while (true)
 	{
 		try {
@@ -45,7 +45,9 @@ async function LoadFile(filename) {
 			return response_text;
 
 		} catch (error) {
-			console.error(`Failed to load graph ${filename}:`, error);
+			if (!require)
+				return null;
+			console.error(`Failed to load ${filename}:`, error);
 			document.querySelector('#loader').classList.add('error');
 		}
 
@@ -129,7 +131,7 @@ function CollectHistory(child_nodes, parents=[]) {
 				const history_item = {
 					node_parents: parents,
 					node_name: node_name,
-					metric_node: child_nodes[node_name]['metric_node'],
+					metric_location: child_nodes[node_name]['metric_location'],
 					in_focus: in_focus,
 					is_actual: false,
 
@@ -236,7 +238,7 @@ function FillHistoryTable(node_info) {
 		else
 			ts_cell.textContent = ts_string;
 
-		const node_details = hst_row['metric_node'];
+		const node_details = hst_row['metric_location'];
 
 		const filter_btn = document.createElement('BUTTON');
 		filter_btn.innerText = '⧩';
@@ -259,7 +261,7 @@ function FillHistoryTable(node_info) {
 		const link = document.createElement('A');
 		link.href = '/' + (hst_row['node_parents'] || []).join('/');
 		link.title = node_details;
-		if (hst_row['node_parents'].length) {
+		if (hst_row['node_parents'].length > 1) {
 			const name_deep = hst_row['node_parents'].length - node_info['node_deep'].length;
 			link.textContent = hst_row['node_name'] + ' ← ' + (hst_row['node_parents'].toReversed().slice(0, name_deep) || []).join(' ← ');
 		} else {
@@ -343,7 +345,7 @@ async function MakePageByPathname(node_info) {
 
 async function LoadNodeInfo(pathname)
 {
-	const node_info_text = await LoadFile('/node_info' + pathname);
+	const node_info_text = await LoadFile('/node_info' + pathname, true);
 	return JSON.parse(node_info_text);
 }
 

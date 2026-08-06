@@ -97,21 +97,27 @@ def GetStatusByValue(value, node_config, config):
                     details += f"\n(normal: {levels_config['normal']})"
         # levels based on danger/warning
         else:
+            err_msg = None
             try:
                 status = 'normal'
                 for level_name in status_pripority_names:
                     if (level_name in levels_config
                         and type(levels_config[level_name]) is str
-                        and simple_eval(levels_config[level_name], names={'value': worst_value})
+                        and simple_eval(levels_config[level_name], names={'value': worst_value})  # TODO: add env-names for GP
                         ):
                         status = level_name
                         break
             except Exception as e:
+                err_msg = str(e)
                 print(e)
+                print(levels_config)
                 status = 'danger'
 
             if status2idx[status] > 0:
-                details += f"\n({status}: {levels_config[status]})"
+                if status in levels_config:
+                    details += f"\n({status}: {levels_config[status]})"
+                if err_msg:
+                    details += f"\n{err_msg}"
 
     return status, details
 
@@ -138,20 +144,33 @@ async def RefreshProviderMetrics(config):
                 else:
                     provider_stored_data = json.loads(provider_stored_data)
                 update_interval = provider_cfg.get('update_interval', config['defaults']['update_interval'])
-                if provider_stored_data['last_check_ts'] + update_interval < now:
+                if provider_stored_data['last_check_ts'] + update_interval > now:
                     continue
                 else:
                     provider_stored_data['last_check_ts'] = now
-                    await db.SetValueByKey(db_key, provider_stored_data)
+                    await db.SetValueByKey(db_key, json.dumps(provider_stored_data))
+
+                # collect metric masks
+                provider_metric_source = provider_cfg.get('metric_source', {})
+                if type(provider_metric_source) is str:
+                    provider_metric_source = {'data_source': provider_metric_source}
+                provider_metric_cfg = {}
+                for metric_name, metric_cfg in provider_cfg['metrics'].items():
+                    metric_source = metric_cfg.get('metric_source', {})
+                    if type(metric_source) is str:
+                        metric_source = {'data_source': metric_source}
+                    provider_metric_cfg[metric_name] = metric_source | provider_metric_source  # (!) provider in priority
 
                 # collect raw metrics
-                raw_metrics = []
+                provider_metrics_data = []  # group_name, named values
                 metric_rows_cursor = MetricSourceRowsGenerator(provider_cfg)
-                async for row_values in metric_rows_cursor:
-                    if type(row_values) is dict:
-                        raw_metrics.append(row_values)
-                    else:
-                        raw_metrics.append({'value': row_values})
+                async for row_data in metric_rows_cursor:
+                    if type(row_data) is dict:  # already filtered
+                        provider_metrics_data.append((None, row_data))
+                    for metric_name, metric_cfg in provider_metric_cfg.items():
+                        filtered_value = FilterMetricDataRow(row_data, metric_cfg)
+                        if filtered_value:
+                            provider_metrics_data.append((metric_name, row_data))
 
                 # group metrics
                 for metric_name, metric_cfg in provider_cfg['metrics'].items():
@@ -169,13 +188,27 @@ async def RefreshProviderMetrics(config):
                     # refresh
                     metric_source = metric_cfg.get('metric_source', {})
                     values_list = []
-                    for row_data in raw_metrics:
-                        value = FilterMetricValue(row_data, metric_source)
+                    for row_metric_name, row_data in provider_metrics_data:
+                        if row_metric_name and row_metric_name != metric_name:
+                            continue
+                        value = FilterMetricDataRow(row_data, metric_source)
                         if value:
-                            values_list.append(value)
-                    print(metric_name)
-                    print(values_list)
+                            values_list.append({
+                                'metric': {
+                                    'ts': value.get('ts', Datetime2Ts(value.get('datetime'), metric_source)) or int(now),
+                                    'name': value.get('name'),
+                                    'value': value.get('value'),
+                                    'location': value.get('location'),
+                                    'env': value
+                                },
+                                'origin': row_data
+                            })
 
+                    # store
+                    item_metrics['last_check_ts']
+                    item_metrics['metrics'] = values_list
+                    await db.SetValueByKey(db_key, json.dumps(item_metrics))
+                    provider_metrics[provider_name][metric_name] = item_metrics
 
             case 'prometeus':
                 provider_base_url = provider_cfg['base_url']
@@ -203,7 +236,23 @@ async def RefreshProviderMetrics(config):
                                 if resp_json['status'] == 'success':
                                     if resp_json['data']['resultType'] == 'vector':
                                         item_metrics['last_check_ts'] = now
-                                        item_metrics['metrics'] = resp_json['data']['result']
+
+                                        # prepare metrics
+                                        metrics = []
+                                        for metric in resp_json['data']['result']:
+                                            metrics.append({
+                                                'metric': {
+                                                    'ts': int(metric['value'][0]),
+                                                    'name': metric['metric'].get('name', metric['metric'].get('instance')),
+                                                    'value': metric['value'][1],
+                                                    'location': metric['metric'].get('ip', metric['metric'].get('instance')),
+                                                    'env': metric['metric']
+                                                },
+                                                'origin': None
+                                            })
+
+                                        # store
+                                        item_metrics['metrics'] = metrics
                                         await db.SetValueByKey(db_key, json.dumps(item_metrics))
                                         print(f"{provider_name} / {metric_name} / refreshed as '{db_key}'")
                                     else:
@@ -267,6 +316,7 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
 
             message = f"{msg_prefix} {node_name} in {node_metrics['status']}: {node_metrics['details']}"
             print(message)
+            # TODO: add path to node
 
             recipients = config.get('recipients', [])
             for recipient in recipients:
@@ -315,7 +365,6 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
 
 
 async def StoreNodeStatus(node_name, status, details, node_metrics, config):
-
     # latest data separately to do not duplicate same status in history
     latest_metrics = {
         'ts': int(time.time()),
@@ -356,47 +405,50 @@ def GetNodeLevels(node_config, config):
     return config['defaults']['levels']
 
 
-def Datetime2Ts(dt_str, metric_source):
-    # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
-    dt_formats = [
-        "%d-%m-%Y %H:%M:%S",    # 31-01-2026
-        "%Y-%m-%d %H:%M:%S",    # 2026-01-31
-        "%d/%m/%Y %H:%M:%S",    # 31/01/2026
-        "%Y/%m/%d %H:%M:%S",    # 2026/01/31
-        "%d %B %Y %H:%M:%S",    # 31 January 2026
-        "%B %d, %Y %H:%M:%S",   # January 31, 2026
-        "%b %d %H:%M:%S",       # Jan 31
-    ]
-    if 'datetime_format' in metric_source:
-        dt_formats = [metric_source['datetime_format']]
+def Datetime2Ts(dt_str, metric_source, strict=False):
+    if dt_str:
+        # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
+        dt_formats = [
+            "%d-%m-%Y %H:%M:%S",    # 31-01-2026
+            "%Y-%m-%d %H:%M:%S",    # 2026-01-31
+            "%d/%m/%Y %H:%M:%S",    # 31/01/2026
+            "%Y/%m/%d %H:%M:%S",    # 2026/01/31
+            "%d %B %Y %H:%M:%S",    # 31 January 2026
+            "%B %d, %Y %H:%M:%S",   # January 31, 2026
+            "%b %d %H:%M:%S",       # Jan 31
+        ]
+        if 'datetime_format' in metric_source:
+            dt_formats = [metric_source['datetime_format']]
 
-    for fmt in dt_formats:
-        try:
-            dt = datetime.strptime(dt_str, fmt)
-            return int(dt.timestamp())
-        except ValueError:
-            continue
+        for fmt in dt_formats:
+            try:
+                dt = datetime.strptime(dt_str, fmt)
+                return int(dt.timestamp())
+            except ValueError:
+                continue
 
-    print('(!) Unknown format of datetime: dt_str')
+    if strict:
+        print('(!) Unknown format of datetime: dt_str')
     return None
 
 
-def FilterMetricValue(orig_value, metric_source):
+def FilterMetricDataRow(orig_row, metric_source):
     if type(metric_source) is str:
-        return orig_value
+        return orig_row
 
     mask_re = metric_source.get('mask_re', None)
     rows_filter = metric_source.get('rows_filter', None)
-    named_values = {}
+    named_values = {'env': {}}
 
     if mask_re:
-        match = re.search(rf"{mask_re}", orig_value)
+        match = re.search(rf"{mask_re}", orig_row)
         if match:
-            named_values = match.groupdict()
+            named_values['env'] = match.groupdict()
+        else:
+            return None
 
     if rows_filter:
-        if 'value' not in named_values:
-            named_values['value'] = orig_value
+        named_values['value'] = named_values['env'].get('value', orig_row)
         funcs = {
             'now': lambda: int(time.time()),
             'timestamp': lambda dt: Datetime2Ts(dt, metric_source),
@@ -411,7 +463,7 @@ def FilterMetricValue(orig_value, metric_source):
 
     if named_values:
         return named_values
-    return orig_value
+    return orig_row
 
 
 async def MetricSourceRowsGenerator(node_config):
@@ -425,7 +477,7 @@ async def MetricSourceRowsGenerator(node_config):
     source_type, cmd = data_source.split('://', maxsplit=1)
     match source_type:
         case 'metrics+provider':
-            value = FilterMetricValue(node_config['metric_data'][0]['value'][1], metric_source)  # first item has latest metrics
+            value = FilterMetricDataRow(node_config['metric_data'][0]['metric']['value'], metric_source)  # first item has latest metrics
             yield value
 
         case 'shell':
@@ -444,7 +496,7 @@ async def MetricSourceRowsGenerator(node_config):
                     if not row:  # EOF
                         break
 
-                    value = FilterMetricValue(row.decode('utf-8').rstrip(), metric_source)
+                    value = FilterMetricDataRow(row.decode('utf-8').rstrip(), metric_source)
                     if value:
                         yield value
 
@@ -455,14 +507,14 @@ async def MetricSourceRowsGenerator(node_config):
         case 'https' | 'http':
             value_source = node_config.get('value_source', 'response')
             try:
-                request_timeout = metric_source.get('timeout', 1)
+                request_timeout = metric_source.get('request_timeout', 1)
                 async with httpx.AsyncClient(timeout=request_timeout) as client:
                     async with client.stream("GET", data_source, follow_redirects=True) as response:
                         if value_source == 'http-code':
                             yield response.status_code
                         else:
                             async for row in response.aiter_lines():
-                                value = FilterMetricValue(row.rstrip(), metric_source)
+                                value = FilterMetricDataRow(row.rstrip(), metric_source)
                                 if value:
                                     yield value
             except httpx.TimeoutException:
@@ -487,7 +539,7 @@ async def MetricSourceRowsGenerator(node_config):
             try:
                 with open(cmd, "r") as file:
                     for row in file:
-                        value = FilterMetricValue(row, metric_source)
+                        value = FilterMetricDataRow(row, metric_source)
                         if value:
                             yield value
 

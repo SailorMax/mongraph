@@ -62,6 +62,11 @@ function GetChildNamesForGraph(node_info, graph_type='flowchart') {
 	var node_name = []
 	var nodes = node_info['child_nodes'];
 	if (nodes) {
+		// sort by names
+		nodes = Object.keys(nodes)
+						.sort((a, b) => (nodes[a]['label'] || a).localeCompare(nodes[b]['label'] || b))
+						.reduce((arr, k) => { arr[k] = nodes[k]; return arr }, {});
+		// collect
 		for (const k in nodes) {
 			if (nodes[k]['label'])
 				node_name.push(`${mm_control.EncodeBlockName(k, graph_type)}["${nodes[k]['label']}"]`);
@@ -231,8 +236,7 @@ function FillHistoryTable(node_info) {
 		else
 			ts_cell.textContent = ts_string;
 
-		const node_details = (hst_row['node_parents'] || []).join(' → ')
-						 	+ (hst_row['metric_node'] ? `\n[${hst_row['metric_node']}]` : '')
+		const node_details = hst_row['metric_node'];
 
 		const filter_btn = document.createElement('BUTTON');
 		filter_btn.innerText = '⧩';
@@ -255,7 +259,12 @@ function FillHistoryTable(node_info) {
 		const link = document.createElement('A');
 		link.href = '/' + (hst_row['node_parents'] || []).join('/');
 		link.title = node_details;
-		link.textContent = hst_row['node_name'];
+		if (hst_row['node_parents'].length) {
+			const name_deep = hst_row['node_parents'].length - node_info['node_deep'].length;
+			link.textContent = hst_row['node_name'] + ' ← ' + (hst_row['node_parents'].toReversed().slice(0, name_deep) || []).join(' ← ');
+		} else {
+			link.textContent = hst_row['node_name'];
+		}
 		name_cell.appendChild(link);
 
 		var details = hst_row['details'];

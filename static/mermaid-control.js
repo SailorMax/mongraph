@@ -11,7 +11,7 @@ function GetSvgElementsPrefix(svg)
 
 export function EncodeBlockName(name, graph_type='flowchart')
 {
-	if (graph_type == 'flowchart' && name.match(/^[a-z0-9-]+$/i))
+	if (graph_type == 'flowchart' && name.match(/^[a-z0-9-\.]+$/i))
 		return name;
 	return btoa(name).replaceAll('/', '_').replaceAll('+', '-').replaceAll('=', 'Ξ');
 }

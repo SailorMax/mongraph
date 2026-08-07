@@ -4,6 +4,7 @@ import * as mm_control from './mermaid-control.js';
 // import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
 // import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
 // https://cdn.jsdelivr.net/npm/mermaid@latest/dist/
+// https://cdn.jsdelivr.net/npm/@mermaid-js/tiny@11/dist/mermaid.tiny.js
 mermaid.initialize({
 	startOnLoad: false,
 	theme: 'default',

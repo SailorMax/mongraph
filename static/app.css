@@ -206,7 +206,7 @@ H1, .history_box, .breadcrumb {
 
 .history tr td:nth-child(1),
 .history tr td:nth-child(3) {
-  white-space: pre;
+  white-space: pre-wrap;
 }
 
 dialog::backdrop {

@@ -129,7 +129,6 @@ async def GetNodeInfo(node_path: str):
         node_config['graph_file'] = config['graph_file']
     else:
         path_els = node_path.split('/')
-
         for node_name in path_els:
             if node_name[:7] == 'base64,':
                 node_name = base64.urlsafe_b64decode(node_name[7:]).decode('utf-8')

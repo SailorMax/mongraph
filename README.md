@@ -12,3 +12,13 @@ Monitor infrastructure nodes and visualize it as graph
 ### Supported chart types
 - flowchart
 - block
+
+### config:
+
+#### `metric_source`-block description
+- `data_source`: url to source
+- `request_timeout`
+- `update_interval`: to do not too frequently
+- `mask_re`: perl regular expression with possible to extract: `datetime`, `name`, `value`, `location` and `details`
+- `datetime_format`: datetime pattern
+- `rows_filter`: condition

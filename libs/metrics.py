@@ -7,10 +7,11 @@ import libs.config as cfg
 import libs.db as db
 import libs.helpers as helpers
 import smtplib
+from libs.logs import log_error, pre
 from email.message import EmailMessage
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
-from simpleeval import simple_eval
+from simpleeval import simple_eval, InvalidExpression
 
 status2idx = {
     'unknown': -1,
@@ -41,11 +42,15 @@ def GetStatusByValue(value, node_config, config):
     if not value:
         details = 'Could not detect status. Value is empty.'
     else:
-        levels_config['direction'] = 'up'
-        if ('danger' in levels_config
-            and re.search(r'(value\s*<=?|>=?\s*value)', levels_config['danger'])
+        levels_config['direction'] = 'down'  # by default 'down' to sort statuses 0/1 to get 0 on top as worst
+        if ('warning' in levels_config
+            and re.search(r'(value\s*>=?|<=?\s*value)', levels_config['warning'])
             ):
-            levels_config['direction'] = 'down'
+            levels_config['direction'] = 'up'
+        if ('danger' in levels_config
+            and re.search(r'(value\s*>=?|<=?\s*value)', levels_config['danger'])
+            ):
+            levels_config['direction'] = 'up'
 
         # sort values and get `worst_value`
         values = []
@@ -80,7 +85,7 @@ def GetStatusByValue(value, node_config, config):
             try:
                 status = 'normal' if simple_eval(levels_config['normal'], names={'value': worst_value}) else 'danger'
             except Exception as e:
-                print(e)
+                log_error(e)
                 status = 'danger'
 
             if 'value_source' in node_config:
@@ -99,18 +104,27 @@ def GetStatusByValue(value, node_config, config):
         else:
             err_msg = None
             try:
+                named_values = {'value': worst_value}
+                if 'metric_data' in node_config:
+                    named_values = node_config['metric_data'][0]['metric'] | named_values
+
                 status = 'normal'
                 for level_name in status_pripority_names:
                     if (level_name in levels_config
                         and type(levels_config[level_name]) is str
-                        and simple_eval(levels_config[level_name], names={'value': worst_value})  # TODO: add env-names for GP
+                        and simple_eval(levels_config[level_name], names=named_values)  # TODO: add env-names for GP
                         ):
                         status = level_name
                         break
-            except Exception as e:
+
+            except SyntaxError as e:
+                err_msg = f'{e} at {e.lineno}:{e.offset} of: {e.text.strip() if e.text else 'None'}'
+                log_error(err_msg)
+                status = 'danger'
+
+            except InvalidExpression as e:
                 err_msg = str(e)
-                print(e)
-                print(levels_config)
+                log_error(err_msg)
                 status = 'danger'
 
             if status2idx[status] > 0:
@@ -128,7 +142,7 @@ async def RefreshProviderMetrics(config):
     providers = config['providers']
     for provider_name, provider_cfg in providers.items():
         if not provider_cfg or 'type' not in provider_cfg:
-            print(f"(!) Provider '{provider_name}' has not 'type' attribute.")
+            log_error(f"Provider '{provider_name}' has not 'type' attribute.")
             continue
 
         provider_metrics[provider_name] = {}
@@ -159,7 +173,7 @@ async def RefreshProviderMetrics(config):
                     metric_source = metric_cfg.get('metric_source', {})
                     if type(metric_source) is str:
                         metric_source = {'data_source': metric_source}
-                    provider_metric_cfg[metric_name] = metric_source | provider_metric_source  # (!) provider in priority
+                    provider_metric_cfg[metric_name] = metric_source | provider_metric_source  # (!) provider in priority => second
 
                 # collect raw metrics
                 provider_metrics_data = []  # group_name, named values
@@ -167,10 +181,11 @@ async def RefreshProviderMetrics(config):
                 async for row_data in metric_rows_cursor:
                     if type(row_data) is dict:  # already filtered
                         provider_metrics_data.append((None, row_data))
-                    for metric_name, metric_cfg in provider_metric_cfg.items():
-                        filtered_value = FilterMetricDataRow(row_data, metric_cfg)
-                        if filtered_value:
-                            provider_metrics_data.append((metric_name, row_data))
+                    else:
+                        for metric_name, metric_cfg in provider_metric_cfg.items():
+                            filtered_value = FilterMetricDataRow(row_data, metric_cfg)
+                            if filtered_value:
+                                provider_metrics_data.append((metric_name, row_data))
 
                 # group metrics
                 for metric_name, metric_cfg in provider_cfg['metrics'].items():
@@ -191,15 +206,22 @@ async def RefreshProviderMetrics(config):
                     for row_metric_name, row_data in provider_metrics_data:
                         if row_metric_name and row_metric_name != metric_name:
                             continue
-                        value = FilterMetricDataRow(row_data, metric_source)
+
+                        value = row_data  # already filtered case
+                        if type(row_data) is not dict:
+                            value = FilterMetricDataRow(row_data, metric_source)
+
                         if value:
+                            if type(value) is not dict:
+                                value = {'value': value}
+                            env_values = value.get('env', {})
                             values_list.append({
                                 'metric': {
-                                    'ts': value.get('ts', Datetime2Ts(value.get('datetime'), metric_source)) or int(now),
-                                    'name': value.get('name'),
-                                    'value': value.get('value'),
-                                    'location': value.get('location'),
-                                    'env': value
+                                    'ts': env_values.get('ts', Datetime2Ts(env_values.get('datetime'), metric_source)) or int(now),
+                                    'name': env_values.get('name'),
+                                    'value': env_values.get('value'),
+                                    'location': env_values.get('location'),
+                                    'env': env_values
                                 },
                                 'origin': row_data
                             })
@@ -256,15 +278,15 @@ async def RefreshProviderMetrics(config):
                                         await db.SetValueByKey(db_key, json.dumps(item_metrics))
                                         print(f"{provider_name} / {metric_name} / refreshed as '{db_key}'")
                                     else:
-                                        print(f"(!) {provider_name} / {metric_name} / Response has unknown resultType: {resp_json['resultType']}")
+                                        log_error(f"{provider_name} / {metric_name} / Response has unknown resultType: {resp_json['resultType']}")
                                 else:
-                                    print(f"(!) {provider_name} / {metric_name} / Response has unknown status: {resp_json['status']}")
+                                    log_error(f"{provider_name} / {metric_name} / Response has unknown status: {resp_json['status']}")
                         except Exception as e:
-                            print(f"(!) {provider_name} / {metric_name} / {str(e)}")
+                            log_error(f"{provider_name} / {metric_name} / {str(e)}")
 
                     provider_metrics[provider_name][metric_name] = item_metrics
             case _:
-                print(f"(!) {provider_name} / Provider type '{provider_cfg['type']}' is unknown.")
+                log_error(f"{provider_name} / Provider type '{provider_cfg['type']}' is unknown.")
 
     return provider_metrics
 
@@ -347,19 +369,19 @@ async def NotifyAboutNewStatus(node_name, node_metrics, config):
                             print("sent")
                             # node_metrics['history'][0]['notified'] = True
                         except Exception as e:
-                            print(f"(!) Failed to send email. Error: {e}")
+                            log_error(f"Failed to send email. Error: {e}")
 
                     case 'shell':
                         cmd = recipient.split('://', maxsplit=1)[1]
                         proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                         stdout, stderr = await proc.communicate()
                         if len(stderr) > 0:
-                            print(f"(!) {stderr.decode('utf-8')}")
+                            log_error(f"{stderr.decode('utf-8')}")
                         elif await proc.wait() != 0:
-                            print(f"(!) Failed send notification via: {cmd}")
+                            log_error(f"Failed send notification via: {cmd}")
 
                     case _:
-                        print(f"(!) Recipient type '{recipient_type}' is unknown.")
+                        log_error(f"Recipient type '{recipient_type}' is unknown.")
 
     return node_metrics
 
@@ -428,27 +450,27 @@ def Datetime2Ts(dt_str, metric_source, strict=False):
                 continue
 
     if strict:
-        print('(!) Unknown format of datetime: dt_str')
+        log_error(f'Unknown format of datetime: {dt_str}')
     return None
 
 
-def FilterMetricDataRow(orig_row, metric_source):
+def FilterMetricDataRow(orig_row, metric_source):  # filter by mask and filter
     if type(metric_source) is str:
         return orig_row
 
     mask_re = metric_source.get('mask_re', None)
     rows_filter = metric_source.get('rows_filter', None)
-    named_values = {'env': {}}
+    named_values = {}
 
     if mask_re:
         match = re.search(rf"{mask_re}", orig_row)
         if match:
-            named_values['env'] = match.groupdict()
+            named_values = {'env': match.groupdict()}  # compatibility with stored metrics
         else:
             return None
 
     if rows_filter:
-        named_values['value'] = named_values['env'].get('value', orig_row)
+        named_values['value'] = named_values.get('env', {}).get('value', orig_row)
         funcs = {
             'now': lambda: int(time.time()),
             'timestamp': lambda dt: Datetime2Ts(dt, metric_source),
@@ -506,8 +528,8 @@ async def MetricSourceRowsGenerator(node_config):
 
         case 'https' | 'http':
             value_source = node_config.get('value_source', 'response')
+            request_timeout = metric_source.get('request_timeout', 1)
             try:
-                request_timeout = metric_source.get('request_timeout', 1)
                 async with httpx.AsyncClient(timeout=request_timeout) as client:
                     async with client.stream("GET", data_source, follow_redirects=True) as response:
                         if value_source == 'http-code':
@@ -521,19 +543,19 @@ async def MetricSourceRowsGenerator(node_config):
                 if value_source == 'http-code':
                     yield 408
                 else:
-                    print(f"(!) {data_source}: timeout")
+                    log_error(f"{data_source}: timeout({request_timeout}s)")
             except httpx.RequestError as e:
                 if value_source == 'http-code':
                     yield 500
                 else:
-                    print(f"(!) {str(e)}")
+                    log_error(str(e))
             except httpx.HTTPStatusError as e:
                 if value_source == 'http-code':
                     yield e.response.status_code
                 else:
-                    print(f"(!) {str(e)}")
+                    log_error(str(e))
             except Exception as e:
-                print(f"(!) {str(e)}")
+                log_error(str(e))
 
         case 'file':
             try:
@@ -544,10 +566,10 @@ async def MetricSourceRowsGenerator(node_config):
                             yield value
 
             except Exception as e:
-                print(f"(!) {str(e)}")
+                log_error(str(e))
 
         case _:
-            print(f"(!) Metric source '{source_type}' is unknown.")
+            log_error(f"Metric source '{source_type}' is unknown.")
     return
 
 
@@ -566,14 +588,13 @@ async def RefreshNodeMetrics(node_name, node_config, config, provider_metrics):
         metric_rows_cursor = MetricSourceRowsGenerator(node_config)
         async for row in metric_rows_cursor:
             if type(row) is dict:
-                values_rows.append((row.get('value', ''), row.get('name', '')))
+                values_rows.append([row.get('value', ''), row.get('name', '')])
             else:
-                values_rows.append((row,))
+                values_rows.append([row])
         value = values_rows
 
         status, details = GetStatusByValue(value, node_config, config)
         stored, node_metrics = await StoreNodeStatus(node_name, status, details, node_metrics, config)
-        # print(json.dumps(node_metrics, indent=2))
 
     return True
 

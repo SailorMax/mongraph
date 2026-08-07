@@ -4,6 +4,7 @@ import libs.config
 import libs.db as db
 import libs.config as cfg
 
+from libs.logs import log_error, pre
 from urllib.parse import urlparse, parse_qs
 from simpleeval import simple_eval, NameNotDefined
 
@@ -43,16 +44,14 @@ async def GetStoredProviderMetrics(config):
     return provider_metrics
 
 
+# fill the tree by virtual nodes from provider metrics
 async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config):
-    nodes = {}
-    if 'nodes' in config_cursor:
-        nodes = config_cursor['nodes']
-    elif 'child_nodes' in config_cursor:
-        nodes = config_cursor['child_nodes']
+    nodes = config_cursor.get('nodes', config_cursor.get('child_nodes', {})) or {}
 
     if 'child_nodes_from_provider' in config_cursor:
         # generate virtual childs and collect data for them from provider's data
         virtual_node_names = {}
+        virtual_subtree_type = 'node_name-metric'
         for provider_nodes_uri in config_cursor['child_nodes_from_provider']:
             parsed_uri = urlparse(provider_nodes_uri)
             parsed_query = parse_qs(parsed_uri.query)
@@ -67,16 +66,31 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
 
             match parsed_uri.scheme:
                 case 'provider':
+                    # take provider from child_nodes_from_provider-url
                     if parsed_uri.netloc in providers_config:
                         provider_name = parsed_uri.netloc
                         provider_config = providers_config[provider_name]
 
+                        # check provider_name in metrics
                         if provider_name in provider_metrics:
                             curr_provider_metrics = provider_metrics[provider_name]
 
+                            # run along the metrics cfg of provider
                             for provider_metric_name in provider_config['metrics']:
                                 if provider_metric_name in curr_provider_metrics:
+                                    provider_metric_config = provider_config['metrics'][provider_metric_name]
 
+                                    # take node_name_attr to group metrics. node_name_attr of previous node in priority!
+                                    metric_node_name_attr = node_name_attr
+                                    if (not metric_node_name_attr
+                                        and type(provider_metric_config['metric_source']) is dict
+                                        and 'node_name_attr' in provider_metric_config['metric_source']
+                                        ):
+                                        metric_node_name_attr = [provider_metric_config['metric_source']['node_name_attr']]
+                                        virtual_subtree_type = 'metric-node_name'
+                                        # TODO: setup node names instead of 2 blocks
+
+                                    # run along the metrics
                                     provider_metrics_list = curr_provider_metrics[provider_metric_name]['metrics']
                                     for metric_row in provider_metrics_list:
                                         env_names = metric_row['metric']['env']  # only env, because system not require
@@ -85,7 +99,7 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                                                 # choose name for node
                                                 node_name = None
                                                 row_node_name_attr = None
-                                                for attr in node_name_attr:
+                                                for attr in metric_node_name_attr:
                                                     node_name = env_names.get(attr)
                                                     if node_name:
                                                         row_node_name_attr = attr
@@ -104,28 +118,44 @@ async def CollectNodesOfCursor(config_cursor, provider_metrics, providers_config
                                                     virtual_node_names[provider_metric_name]['metric_data'].append(metric_row)
 
                                                 else:
-                                                    # take level 1 virtual node ( node_name )
-                                                    if node_name not in virtual_node_names:
-                                                        virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
+                                                    if virtual_subtree_type == 'node_name-metric':
+                                                        node_metric_name = provider_metric_name
+                                                        # take level 1 virtual node ( node_name )
+                                                        if node_name not in virtual_node_names:
+                                                            virtual_node_names[node_name] = {'virtual': True, 'child_nodes': {}}
 
-                                                    # fill childs by level 2 (metrics)
-                                                    node_metric_name = provider_metric_name
-                                                    if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
-                                                        node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
-                                                        virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
-                                                            'virtual': True,
-                                                            'label': provider_metric_name,
-                                                            'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
-                                                            'metric_data': [],
-                                                            'metric_location': metric_row['metric']['location']
-                                                        }
-                                                    virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
+                                                        # fill childs by level 2 (metrics)
+                                                        if node_metric_name not in virtual_node_names[node_name]['child_nodes']:
+                                                            node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
+                                                            virtual_node_names[node_name]['child_nodes'][node_metric_name] = {
+                                                                'virtual': True,
+                                                                'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
+                                                                'metric_data': [],
+                                                                'metric_location': metric_row['metric']['location']
+                                                            }
+                                                        virtual_node_names[node_name]['child_nodes'][node_metric_name]['metric_data'].append(metric_row)
+                                                    elif virtual_subtree_type == 'metric-node_name':
+                                                        node_metric_name = provider_metric_name
+                                                        # take level 1 virtual node ( node_name )
+                                                        if node_metric_name not in virtual_node_names:
+                                                            virtual_node_names[node_metric_name] = {'virtual': True, 'child_nodes': {}}
+
+                                                        # fill childs by level 2 (metrics)
+                                                        if node_name not in virtual_node_names[node_metric_name]['child_nodes']:
+                                                            node_metric_filter = f"{metric_filter} and {row_node_name_attr} == '{node_name}'"
+                                                            virtual_node_names[node_metric_name]['child_nodes'][node_name] = {
+                                                                'virtual': True,
+                                                                'metric_source': f"metrics+provider://{provider_name}/{provider_metric_name}?filter={node_metric_filter}",
+                                                                'metric_data': [],
+                                                                'metric_location': metric_row['metric']['location']
+                                                            }
+                                                        virtual_node_names[node_metric_name]['child_nodes'][node_name]['metric_data'].append(metric_row)
                                         except NameNotDefined as e:
-                                            print(f"(!) {str(e)}")
+                                            log_error(str(e))
                                             print(f"Available names: {json.dumps(env_names)}")
 
                     else:
-                        print(f"(!) Provider '{parsed_uri.netloc}' not found from uri {provider_nodes_uri}")
+                        log_error(f"Provider '{parsed_uri.netloc}' not found from uri {provider_nodes_uri}")
 
         for node_name in virtual_node_names:
             # nodes[node_name] = virtual_node_names[node_name]

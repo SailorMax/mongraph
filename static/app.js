@@ -262,7 +262,7 @@ function FillHistoryTable(node_info) {
 		const link = document.createElement('A');
 		link.href = '/' + (hst_row['node_parents'] || []).join('/');
 		link.title = node_details;
-		if (hst_row['node_parents'].length > 1) {
+		if (hst_row['node_parents'].length > node_info['node_deep'].length) {
 			const name_deep = hst_row['node_parents'].length - node_info['node_deep'].length;
 			link.textContent = hst_row['node_name'] + ' ← ' + (hst_row['node_parents'].toReversed().slice(0, name_deep) || []).join(' ← ');
 		} else {
